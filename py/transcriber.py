@@ -76,7 +76,7 @@ parser.add_argument('-f', '--file',
 #					help='the input file; can be preceded by the name of the input folder (\'in/\')')
 # Positional args
 parser.add_argument('rootpath', 
-					help='the abTab home directory.')
+					help='the abtab home directory.')
 parser.add_argument('libpath', 
 					help='the directory holding the code.')
 parser.add_argument('classpath', 
@@ -92,7 +92,7 @@ if __name__ == "__main__":
 	lib_path = args.libpath
 	with open(os.path.join(lib_path, 'paths.json'), 'r') as file:
 		json_str = file.read()
-	json_str = re.sub(r'//.*', '', json_str) # remove // comments
+	json_str = re.sub(r'//.*', '', json_str) # remove '//' comments
 	paths_json = json.loads(json_str)
 	dipl_path = os.path.join(root_path, paths_json['DIPLOMAT_PATH'])
 	in_path = os.path.join(dipl_path, 'in') # full path to input file

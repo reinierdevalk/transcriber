@@ -582,7 +582,7 @@ def _create_element(name: str, parent: ET.Element=None, atts: list=[]): # -> ET.
 def transcribe(infiles: list, arg_paths: dict, args: argparse.Namespace): # -> None
 	inpath = arg_paths['inpath']
 	outpath = arg_paths['outpath']
-	
+
 	for infile in infiles:
 		filename, ext = os.path.splitext(os.path.basename(infile)) # input file name, extension
 		outfile = filename + '-dipl' + ext # output file
