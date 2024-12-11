@@ -99,7 +99,22 @@ smufl_lute_durs = {'f': 'fermataAbove',
 
 java_path = 'tools.music.PitchKeyTools' # <package>.<package>.<file>
 verbose = False
+add_accid_ges = True
 
+# Vals for args.mode
+MINOR = '1'
+MAJOR = '0'
+# Vals for args.staff
+SINGLE = 's'
+DOUBLE = 'd'
+# Vals for args.tablature
+YES = 'y'
+NO = 'n'
+# Vals for args.type
+FLT = 'FLT'
+ILT = 'ILT'
+SLT = 'SLT'
+GLT = 'GLT'
 
 def _handle_namespaces(path: str): # -> dict
 	# There is only one namespace, whose key is an empty string -- replace the  
@@ -167,7 +182,7 @@ def _handle_scoreDef(scoreDef: ET.Element, ns: dict, args: argparse.Namespace): 
 	tab_meterSig = tab_staffDef.find('mei:meterSig', ns)
 	tab_mensur = tab_staffDef.find('mei:mensur', ns)
 	# Adapt
-	if args.tablature == 'y':
+	if args.tablature == YES:
 		n = tab_staffDef.get('n')
 		lines = tab_staffDef.get('lines')
 		not_type = tab_staffDef.get('notationtype')
@@ -179,9 +194,9 @@ def _handle_scoreDef(scoreDef: ET.Element, ns: dict, args: argparse.Namespace): 
 			tab_staffDef.attrib.pop('notationsubtype', None)
 			tab_staffDef.attrib.pop('valign', None)
 		# Reset <staffDef> attributes
-		tab_staffDef.set('n', str(int(n) + (1 if args.staff == 's' else 2)))
+		tab_staffDef.set('n', str(int(n) + (1 if args.staff == SINGLE else 2)))
 		if not_type != notationtypes['GLT']:
-			tab_staffDef.set('lines', '5' if lines == '5' and args.type == 'FLT' else '6')
+			tab_staffDef.set('lines', '5' if lines == '5' and args.type == FLT else '6')
 			tab_staffDef.set('notationtype', notationtypes[args.type])
 		# Reset <tuning>	
 		tuning.clear()
@@ -198,12 +213,12 @@ def _handle_scoreDef(scoreDef: ET.Element, ns: dict, args: argparse.Namespace): 
 
 	# 2. Notehead <staffGrp>: create and set as first element in <staffGrp>
 	nh_staffGrp = ET.Element(uri_mei + 'staffGrp')
-	if args.staff == 'd':
+	if args.staff == DOUBLE:
 		nh_staffGrp.set('symbol', 'bracket')
 		nh_staffGrp.set('bar.thru', 'true')
 	staffGrp.insert(0, nh_staffGrp)
 	# Add <staffDef>(s)
-	for i in [1] if args.staff == 's' else [1, 2]:
+	for i in [1] if args.staff == SINGLE else [1, 2]:
 		nh_staffDef = ET.SubElement(nh_staffGrp, uri_mei + 'staffDef',
 									n=str(i),
 									lines='5'
@@ -211,7 +226,7 @@ def _handle_scoreDef(scoreDef: ET.Element, ns: dict, args: argparse.Namespace): 
 		if i == 1:
 			nh_staffDef.set('dir.dist', '4')
 		# Add <clef>
-		if args.staff == 's':
+		if args.staff == SINGLE:
 			clef = _create_element(uri_mei + 'clef', parent=nh_staffDef, atts=
 								   [('shape', 'G'), 
 									('line', '2'),
@@ -226,7 +241,7 @@ def _handle_scoreDef(scoreDef: ET.Element, ns: dict, args: argparse.Namespace): 
 		# Add <keySig>
 		keySig = ET.SubElement(nh_staffDef, uri_mei + 'keySig',
 							   sig=_get_MEI_keysig(int(args.key)),
-							   mode='minor' if args.mode == '1' else 'major'
+							   mode='minor' if args.mode == MINOR else 'major'
 							  )
 		# Add <meterSig> or <mensur>
 		if tab_meterSig is not None:
@@ -288,9 +303,14 @@ def _handle_section(section: ET.Element, ns: dict, args: argparse.Namespace): # 
 	pcGrid = grids_dict['pcGrid'] # list
 	pcGridStr = str(pcGrid)
 
+	if add_accid_ges:
+		key_sig_accid_type = 'f' if int(args.key) <= 0 else 's'
+		# Key sig accidentals as MIDI pitch classes (e.g. 10, 3)
+		key_sig_accid_mpc = [mpcGrid[i] for i in range(len(altGrid)) if altGrid[i] == key_sig_accid_type]
+
 	note_ind = 0
-	for measure in section.iter(uri_mei + 'measure'):
-		accidsInEffect = [[], [], [], [], []]
+	for measure in section.iter(uri_mei + 'measure'):		 
+		accidsInEffect = [[], [], [], [], []] # double flats, flats, naturals, sharps, double sharps
 		other_elements = []
 		obsolete_elements = []
 
@@ -303,17 +323,17 @@ def _handle_section(section: ET.Element, ns: dict, args: argparse.Namespace): # 
 				# 1. Tablature <staff>: adapt or remove
 				# Adapt
 				tab_staff = measure.find('mei:staff', ns)
-				tab_staff.set('n', str(int(tab_staff.attrib['n']) + (1 if args.staff == 's' else 2)))
+				tab_staff.set('n', str(int(tab_staff.attrib['n']) + (1 if args.staff == SINGLE else 2)))
 				tab_layer = tab_staff.find('mei:layer', ns)
 				# Remove
-				if args.tablature == 'n':
+				if args.tablature == NO:
 					measure.remove(tab_staff)
 
 				# 2. Notehead <staff>(s): create and set as first element(s) in <measure>
 				# NB: in the single staff case, nh_staff_2 and its subelements are not used
 				nh_staff_1 = ET.Element(uri_mei + 'staff', n='1')
 				nh_staff_2 = ET.Element(uri_mei + 'staff', n='2')
-				if args.staff == 'd':
+				if args.staff == DOUBLE:
 					measure.insert(0, nh_staff_2)
 				measure.insert(0, nh_staff_1)
 				# Add <layer>s
@@ -346,8 +366,8 @@ def _handle_section(section: ET.Element, ns: dict, args: argparse.Namespace): # 
 						measure.insert(len(measure)-1, _dir)	
 					# Add <chord>s and <space>s	
 					else:
-						# If args.staff == 'd', chords are split over the two staffs, where there are
-						# three possibilities: 
+						# If args.staff == DOUBLE, chords are split over the two staffs, where
+						# there are three possibilities: 
 						# (1) both the upper and the lower staff have a chord;
 						# (2) only the upper staff has a chord; 
 						# (3) only the lower staff has a chord.
@@ -375,34 +395,43 @@ def _handle_section(section: ET.Element, ns: dict, args: argparse.Namespace): # 
 									raise Exception(f"Element {element.tag} with attributes\
 													{element.attrib} is either missing tab.course or tab.fret")
 
-								# a. The note is in key and there are no accidentals to correct  
 								midi_pitch_class = midi_pitch % 12
+								# a. The note is in key	and there are no accidentals in effect
 								if midi_pitch_class in mpcGrid and not any(accidsInEffect):
 									pname = pcGrid[mpcGrid.index(midi_pitch_class)]
-									accid = ''
-								# b. The note is in key and there are accidentals to correct / the note is not in key
+									accid = ''									
+									if add_accid_ges:
+										accid_ges = key_sig_accid_type if midi_pitch_class in key_sig_accid_mpc else ''
+								# b. The note is in key	and there are accidentals in effect / the note is not in key
 								else:
-									cmd = ['java', '-cp', args.classpath, java_path, str(midi_pitch), args.key, 
-#									cmd = ['java', '-cp', cp, java_path, str(midi_pitch), args.key, 
+									cmd = ['java', '-cp', args.classpath, java_path, str(midi_pitch), args.key,
 						 	 			   mpcGridStr, altGridStr, pcGridStr, str(accidsInEffect)]
 									spell_dict = _call_java(cmd)
 									pname = spell_dict['pname'] # str
 									accid = spell_dict['accid'] # str
+									if add_accid_ges:
+										accid_ges = spell_dict['accid.ges'] # str
 									accidsInEffect = spell_dict['accidsInEffect'] # list
-								
+
+								accid_part = [('accid', accid)] if accid != '' else []
+								if add_accid_ges:
+									# accid.ges overrules accid
+									if accid_ges != '':
+										accid_part = [('accid.ges', accid_ges)]
+
 								nh_note = _create_element(uri_mei + 'note', 
-														  parent=chord_1 if args.staff == 's' else\
+														  parent=chord_1 if args.staff == SINGLE else\
 														         (chord_1 if midi_pitch >= 60 else chord_2), 
 														  atts=[('pname', pname),
 														        ('oct', str(_get_octave(midi_pitch))),
 														   		('head.fill', 'solid'),
 														   		(xml_id_key, f'n{note_ind}.{element.get(xml_id_key)}')] +
-														   		 ([('accid', accid)] if accid != '' else [])
+														   		(accid_part)
 													 	 )
 								note_ind += 1
 
 						# Add <chord> or <space> to <layer>
-						if args.staff == 's':
+						if args.staff == SINGLE:
 							nh_layer_1.append(chord_1)
 						else:
 							if len(chord_1) > 0 and len(chord_2) > 0:
@@ -441,7 +470,7 @@ def _handle_section(section: ET.Element, ns: dict, args: argparse.Namespace): # 
 					measure.insert((last_dir_ind+1 if last_dir_ind != -1 else len(measure)-1), _dir)
 
 					# Add to lists	
-					if args.tablature == 'y':
+					if args.tablature == YES:
 						other_elements.append(copy.deepcopy(c))
 					obsolete_elements.append(c)
 				# Annotation: needs <annot> (CMN) and <annot> (= c; tab) 
@@ -466,13 +495,13 @@ def _handle_section(section: ET.Element, ns: dict, args: argparse.Namespace): # 
 
 					# Add to lists
 					other_elements.append(annot)
-					if args.tablature == 'y':
+					if args.tablature == YES:
 						other_elements.append(copy.deepcopy(c))
 					obsolete_elements.append(c)
 				# Fingering: needs <fing> (= c; tab)
 				elif c.tag == uri_mei + 'fing':
 					# Add to lists
-					if args.tablature == 'y':
+					if args.tablature == YES:
 						other_elements.append(copy.deepcopy(c))
 					obsolete_elements.append(c)
 
@@ -505,6 +534,7 @@ def _call_java(cmd: list, use_Popen: bool=False): # -> dict:
 		process = Popen(cmd, stdout=PIPE, stderr=PIPE, shell=False)
 		output, errors = process.communicate()
 		outp = output.decode('utf-8') # str
+		errors = errors.decode('utf-8') # str
 		print(errors)
 		print(outp)
 	# For normal use
@@ -512,7 +542,7 @@ def _call_java(cmd: list, use_Popen: bool=False): # -> dict:
 		process = run(cmd, capture_output=True, shell=False)
 		outp = process.stdout # bytes
 #	print(outp)
- 
+
 	return json.loads(outp)
 
 

@@ -55,10 +55,10 @@ parser.add_argument('-m', '--mode',
 						  options are [0, 1], default is 0')
 parser.add_argument('-s', '--staff', 
 					choices=['s', 'd'], 
-					default='s',
+					default='d',
 					metavar='', 
 					help='the staff type: single or double;\
-						  options are [s, d], default is s')
+						  options are [s, d], default is d')
 parser.add_argument('-t', '--tablature', 
 					choices=['y', 'n'], 
 					default='y',
@@ -73,8 +73,9 @@ parser.add_argument('-y', '--type',
 						  options are [FLT, ILT, SLT, GLT], default is FLT')
 parser.add_argument('-f', '--file', 
 					help='the input file')
-#					help='the input file; can be preceded by the name of the input folder (\'in/\')')
 # Positional args
+parser.add_argument('dev', 
+					help='true if model development case')
 parser.add_argument('rootpath', 
 					help='the abtab home directory.')
 parser.add_argument('libpath', 
@@ -90,11 +91,12 @@ if __name__ == "__main__":
 	# Paths
 	root_path = args.rootpath
 	lib_path = args.libpath
-	with open(os.path.join(lib_path, 'paths.json'), 'r') as file:
+	paths_file = 'paths-dev.json' if args.dev == 'true' else 'paths.json'
+	with open(os.path.join(lib_path, paths_file), 'r') as file:
 		json_str = file.read()
 	json_str = re.sub(r'//.*', '', json_str) # remove '//' comments
 	paths_json = json.loads(json_str)
-	dipl_path = os.path.join(root_path, paths_json['DIPLOMAT_PATH'])
+	dipl_path = os.path.join(root_path, paths_json['paths']['DIPLOMAT_PATH'])
 	in_path = os.path.join(dipl_path, 'in') # full path to input file
 	out_path = os.path.join(dipl_path, 'out') # full path to output file
 	# TODO can go; covered by install.sh
