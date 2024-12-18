@@ -326,8 +326,9 @@ def handle_section(section: ET.Element, ns: dict, args: argparse.Namespace): # -
 	        ...
 	      </layer>
 	    </staff>
-	    </dir>
+	    <dir/>
 	    ...
+	    <other/>
 	  </measure>
 	  ...
 	</section>
@@ -358,37 +359,26 @@ def handle_section(section: ET.Element, ns: dict, args: argparse.Namespace): # -
 		# Key sig accidentals as MIDI pitch classes (e.g. 10, 3)
 		key_sig_accid_mpc = [mpcGrid[i] for i in range(len(altGrid)) if altGrid[i] == key_sig_accid_type]
 
-	for measure in section.iter(uri_mei + 'measure'):		 
-		accidsInEffect = [[], [], [], [], []] # double flats, flats, naturals, sharps, double sharps
-		
-#		print('BEFORE')
-#		for elem in measure.iter():
-#			print(elem.tag)
-
-		# Collect any non-regular elements in <measure> and remove them from it
+	for measure in section.iter(uri_mei + 'measure'):
+		# 0. Collect any non-regular elements in <measure> and remove them from it
 		regular_elements = [uri_mei + t for t in ['measure', 'staff', 'layer', 'tabGrp', 'tabDurSym', 'note', 'rest']]
 		non_regular_elements = [elem for elem in measure.iter() if elem.tag not in regular_elements]
-		# a. Collect
+		# Collect
 		elems_removed_from_measure = []
 		for elem in non_regular_elements:
 			# Get all elements with the same tag as elem
 			matching_elements = measure.findall(f'.//{elem.tag}', ns)
 			if matching_elements:
 				elems_removed_from_measure.extend(matching_elements)
-		# b. Remove
+		# Remove
 		for elem in elems_removed_from_measure:
 			for parent in measure.iter():
 				if elem in parent:
 					parent.remove(elem)
 					break
 
-#		print('AFTER')
-#		for elem in measure.iter():
-#			print(elem.tag)
-
-		# 1. Handle regular <staff> elements 				
-		dirs = []
-		# a. Tablature <staff>: adapt or remove
+		# 1. Handle regular <staff> elements
+		# a. Tablature <staff>
 		# Adapt
 		tab_staff = measure.find('mei:staff', ns)
 		tab_staff.set('n', str(int(tab_staff.attrib['n']) + (1 if args.staff == SINGLE else 2)))
@@ -397,25 +387,29 @@ def handle_section(section: ET.Element, ns: dict, args: argparse.Namespace): # -
 		if args.tablature == NO:
 			measure.remove(tab_staff)
 
-		# b. Notehead <staff>(s): create and set as first element(s) in <measure>
-		# NB: in the single staff case, nh_staff_2 and its subelements are not used
+		# b. Notehead <staff>s 
+		# Add <staff>s to <measure>
 		nh_staff_1 = ET.Element(uri_mei + 'staff', 
 								**{f'{xml_id_key}': _add_unique_id('s', xml_ids)[-1]},
 								n='1')
 		nh_staff_2 = ET.Element(uri_mei + 'staff', 
 								**{f'{xml_id_key}': _add_unique_id('s', xml_ids)[-1]},
 								n='2')
-		if args.staff == DOUBLE:
-			measure.insert(0, nh_staff_2)
 		measure.insert(0, nh_staff_1)
-		# Add <layer>s
+		if args.staff == DOUBLE:
+			measure.insert(1, nh_staff_2)
+
+		# Add <layer>s to <staff>s
 		nh_layer_1 = ET.SubElement(nh_staff_1, uri_mei + 'layer', 
 								   **{f'{xml_id_key}': _add_unique_id('l', xml_ids)[-1]},
 								   n='1')
 		nh_layer_2 = ET.SubElement(nh_staff_2, uri_mei + 'layer', 
 								   **{f'{xml_id_key}': _add_unique_id('l', xml_ids)[-1]},
 								   n='1')
-		# Add <rest>s, <chord>s, and <space>s to <layer>s; add corresponding <dir>s after last <staff>
+
+		# Add <rest>s, and <chord>s and/or<space>s to <layer>s; collect <dir>s
+		dirs = []
+		accidsInEffect = [[], [], [], [], []] # double flats, flats, naturals, sharps, double sharps
 		for tabGrp in tab_layer.iter(uri_mei + 'tabGrp'):
 			dur = tabGrp.get('dur')
 			dots = tabGrp.get('dots')
@@ -424,12 +418,14 @@ def handle_section(section: ET.Element, ns: dict, args: argparse.Namespace): # -
 			space = tabGrp.find('mei:space', ns)
 			xml_id_tabGrp = tabGrp.get(xml_id_key)
 
-			# Add <rest>s
-			if flag != None and (len(tabGrp) == 1 or rest != None or space != None):
+			# Add <rest>s. Rests can be implicit (a <tabGrp> w/ only a <tabDurSym>) or
+			# explicit (a <tabGrp> w/ a <rest> (and possibly a <tabDurSym>)). Both are
+			# transcribed as a <rest> in the CMN
+			if (flag != None and (len(tabGrp) == 1) or rest != None): # or space != None):
 				xml_id_rest_1 = _add_unique_id('r', xml_ids)[-1]
 				xml_id_rest_2 = _add_unique_id('r', xml_ids)[-1]
 
-				# 1. Create <rest>s (directly on <layer>s)
+				# 1. Add <rest>s to <layer>s
 				rest_1 = _create_element(uri_mei + 'rest', 
 										 parent=nh_layer_1, 
 										 atts=[(xml_id_key, xml_id_rest_1),
@@ -443,29 +439,19 @@ def handle_section(section: ET.Element, ns: dict, args: argparse.Namespace): # -
 
 				# 2. Add <dir>
 				dirs.append(_make_dir(xml_id_rest_1, dur, dots, ns))
-#				_dir = _make_dir(uri_mei, xml_id_rest_1, dur, dots)
-#				measure.insert(len(measure)-1, _dir)
 
 				# 3. Map tabGrp
+				rests = (rest_1, None) if args.staff == SINGLE else (rest_1, rest_2)
+				tabGrps_by_ID[xml_id_tabGrp] = (tabGrp, rests)
+				# Map tab <rest>
 				if rest != None:
-					tabGrps_by_ID[xml_id_tabGrp] = (tabGrp, (rest_1, None) if args.staff == SINGLE\
-																		   else (rest_1, rest_2))
-				else:
-					tabGrps_by_ID[xml_id_tabGrp] = (tabGrp, (None, None))
+					tab_notes_by_ID[rest.get(xml_id_key)] = (rest, rests) 
 
-			# Add <chord>s and <space>s	
-			# If args.staff == DOUBLE, chords are split over the two staffs, where
-			# there are three possibilities 
-			# (1) Both the upper and the lower staff have a chord
-			# (2) Only the upper staff has a chord
-			# (3) Only the lower staff has a chord
+			# Add <chord>s and/or <space>s	
 			else:
-				xml_id_reference = ''
-
-				# 1. Create <chord>s
-				# In cases (2) and (3), the other staff gets a <space> to fill the gap.
-				# <chord>s can therefore not be SubElements, added to the parent <layer>
-				# upon creation, but must be Elements appended later
+				# 0. Create <chord>s and add <note>s to them
+				# NB A <chord> cannot be added directly to the parent <layer> upon creation 
+				#    because it may remain empty, and in that case must be replaced by a <space>
 				xml_id_chord_1 = _add_unique_id('c', xml_ids)[-1]
 				xml_id_chord_2 = _add_unique_id('c', xml_ids)[-1]
 				chord_1 = _create_element(uri_mei + 'chord', 
@@ -478,8 +464,6 @@ def handle_section(section: ET.Element, ns: dict, args: argparse.Namespace): # -
 										   		('dur', dur), 
 										   		('stem.visible', 'false')]
 										 )
-
-				# Add <note>s to <chord>
 				for element in tabGrp:
 					if element != flag and element != rest and element != space:
 						try:
@@ -523,38 +507,29 @@ def handle_section(section: ET.Element, ns: dict, args: argparse.Namespace): # -
 												        ('oct', str(_get_octave(midi_pitch))),
 												   		('head.fill', 'solid')] + (accid_part)
 											 	 )
+						# Map tab <note>
 						tab_notes_by_ID[element.get(xml_id_key)] = (element, nh_note)
 
-				# Add <chord>s or <space>s to <layer>s
-				if args.staff == SINGLE:
-					nh_layer_1.append(chord_1)
-					xml_id_reference = xml_id_chord_1 
-				else:
-					# Two <chord>s
-					if len(chord_1) > 0 and len(chord_2) > 0:
-						nh_layer_1.append(chord_1)
-						nh_layer_2.append(chord_2)
-						xml_id_reference = xml_id_chord_1 					
-					# <chord> and <space> 
-					else:
-						xml_id_space = _add_unique_id('s', xml_ids)[-1]
-						space = _create_element(uri_mei + 'space', 
-												atts=[(xml_id_key, xml_id_space),
-												 	  ('dur', dur)]
-											   )
-						nh_layer_1.append(chord_1 if len(chord_1) > 0 else space)
-						nh_layer_2.append(chord_2 if len(chord_2) > 0 else space)
-						xml_id_reference = xml_id_chord_1 if len(chord_1) > 0 else xml_id_space
+				# 1. Add <chord>s and/or <space>s to <layer>s
+				nh_layer_1.append(chord_1 if len(chord_1) > 0 else space)
+				if args.staff == DOUBLE:
+					xml_id_space = _add_unique_id('s', xml_ids)[-1]
+					space = _create_element(uri_mei + 'space', 
+											atts=[(xml_id_key, xml_id_space),
+											 	  ('dur', dur)]
+											)
+					nh_layer_2.append(chord_2 if len(chord_2) > 0 else space)
+				xml_id_reference = xml_id_chord_1 if len(chord_1) > 0 else xml_id_space
 
 				# 2. Add <dir>
 				if flag != None:
 					dirs.append(_make_dir(xml_id_reference, dur, dots, ns))
-#					_dir = _make_dir(uri_mei, xml_id_reference, dur, dots)
-#					measure.insert(len(measure)-1, _dir)
 
 				# 3. Map tabGrp
-				tabGrps_by_ID[xml_id_tabGrp] = (tabGrp, (chord_1, None) if args.staff == SINGLE\
-																		else (chord_1, chord_2))
+				chords = (chord_1, None) if args.staff == SINGLE\
+										 else (chord_1 if len(chord_1) > 0 else space,\
+										 	   chord_2 if len(chord_2) > 0 else space)
+				tabGrps_by_ID[xml_id_tabGrp] = (tabGrp, chords)
 
 		# 2. Handle non-regular <measure> elements. These are elements that require <chord>, 
 		#    <rest>, or <space> reference xml:ids, and must therefore be handled after all 
@@ -563,25 +538,14 @@ def handle_section(section: ET.Element, ns: dict, args: argparse.Namespace): # -
 		for c in elems_removed_from_measure:
 			# Fermata: needs <dir> (CMN) and <fermata> (= c; tab)
 			if c.tag == uri_mei + 'fermata':
-				# Make <dir> for CMN
+				# Make <dir> for CMN and add 
 				xml_id_tabGrp = c.get('startid')[1:] # start after '#'
 				xml_id_upper_chord = tabGrps_by_ID[xml_id_tabGrp][1][0].get(xml_id_key)
-#				_dir = _make_dir(uri_mei, xml_id_upper_chord, 'f', None)
-		
-				# Add <dir>
 				dirs.append(_make_dir(xml_id_upper_chord, 'f', None, ns))
-
-#				# Add <dir> after the last <dir>, or, if there is none, as the first <dir>
-#				last_dir_ind = -1
-#				for i, child in enumerate(measure):
-#					if child.tag == 'mei:dir':
-#						last_dir_ind = i
-#				measure.insert((last_dir_ind+1 if last_dir_ind != -1 else len(measure)-1), _dir)
 
 				# Add to list	
 				if args.tablature == YES:
 					curr_non_regular_elements.append(c)
-#					curr_non_regular_elements.append(copy.deepcopy(c))
 			# Annotation: needs <annot> (CMN) and <annot> (= c; tab) 
 			elif c.tag == uri_mei + 'annot':
 				# Make <annot> for CMN
@@ -595,15 +559,13 @@ def handle_section(section: ET.Element, ns: dict, args: argparse.Namespace): # -
 				curr_non_regular_elements.append(annot)
 				if args.tablature == YES:
 					curr_non_regular_elements.append(c)
-#					curr_non_regular_elements.append(copy.deepcopy(c))
 			# Fingering: needs <fing> (= c; tab)
 			elif c.tag == uri_mei + 'fing':
 				# Add to list
 				if args.tablature == YES:
 					curr_non_regular_elements.append(c)
-#					curr_non_regular_elements.append(copy.deepcopy(c))
 
-		# Add non-regular <measure> elements to <measure> in fixed sequence
+		# 3. Add non-regular <measure> elements to completed <measure> in fixed sequence
 		fermatas = [e for e in curr_non_regular_elements if e.tag == uri_mei + 'fermata']
 		annots = [e for e in curr_non_regular_elements if e.tag == uri_mei + 'annot']
 		fings = [e for e in curr_non_regular_elements if e.tag == uri_mei + 'fing']
