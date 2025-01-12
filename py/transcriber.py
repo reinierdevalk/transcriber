@@ -30,14 +30,16 @@ import os
 import re
 import sys
 from diplomat import transcribe
+from parser_vals import *
+
 
 parser = argparse.ArgumentParser(prog=		 'diplomat',
 								 description='Creates a diplomatic transcription in notehead notation.',
 								 epilog=	 'Stores a new MEI file in the output folder (\'out/\').')
 # Optional args
 parser.add_argument('-u', '--tuning', 
-					choices=['F', 'F-', 'G', 'G-', 'A', 'A-'], 
-					default='G',
+					choices=[F, F6Eb, G, G6F, A, A6G], 
+					default=G,
 					metavar='', 
 					help='the tuning; options are [F, F-, G, G-, A, A-], default is G')
 parser.add_argument('-k', '--key', 
@@ -48,26 +50,26 @@ parser.add_argument('-k', '--key',
 						  number of accidentals (where a negative number indicates flats);\
 						  options are [-5, ..., 5], default is 0')
 parser.add_argument('-m', '--mode', 
-					choices=['0', '1'], 
-					default='0',
+					choices=[MAJOR, MINOR], 
+					default=MAJOR,
 					metavar='', 
 					help='the key signature\'s \'mode\': major (0) or minor (1);\
 						  options are [0, 1], default is 0')
 parser.add_argument('-s', '--staff', 
-					choices=['s', 'd'], 
-					default='d',
+					choices=[SINGLE, DOUBLE], 
+					default=DOUBLE,
 					metavar='', 
 					help='the staff type: single or double;\
 						  options are [s, d], default is d')
 parser.add_argument('-t', '--tablature', 
-					choices=['y', 'n'], 
-					default='y',
+					choices=[YES, NO], 
+					default=YES,
 					metavar='',
 					help='whether or not to retain the tab in the transcription;\
 						  options are [y, n], default is y')
 parser.add_argument('-y', '--type', 
-					choices=['FLT', 'ILT', 'SLT', 'GLT'], 
-					default='FLT',
+					choices=[FLT, ILT, SLT, GLT], 
+					default=FLT,
 					metavar='',
 					help='the tablature type;\
 						  options are [FLT, ILT, SLT, GLT], default is FLT')

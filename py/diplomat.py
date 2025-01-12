@@ -41,20 +41,21 @@ import string
 import subprocess
 import xml.etree.ElementTree as ET
 from subprocess import Popen, PIPE, run
+from parser_vals import *
 
-notationtypes = {'FLT': 'tab.lute.french',
-				 'ILT': 'tab.lute.italian',
-				 'SLT': 'tab.lute.spanish',
-				 'GLT': 'tab.lute.german'
+notationtypes = {FLT: 'tab.lute.french',
+				 ILT: 'tab.lute.italian',
+				 SLT: 'tab.lute.spanish',
+				 GLT: 'tab.lute.german'
 				}
-tunings = {'F' : [('f', 4), ('c', 4), ('g', 3), ('eb', 3), ('bb', 2), ('f', 2)],
-		   'F-': [('f', 4), ('c', 4), ('g', 3), ('eb', 3), ('bb', 2), ('eb', 2)],
-		   'G' : [('g', 4), ('d', 4), ('a', 3), ('f', 3), ('c', 3), ('g', 2)], 
-		   'G-': [('g', 4), ('d', 4), ('a', 3), ('f', 3), ('c', 3), ('f', 2)], 
-		   'A' : [('a', 4), ('e', 4), ('b', 3), ('g', 3), ('d', 3), ('a', 2)], 
-		   'A-': [('a', 4), ('e', 4), ('b', 3), ('g', 3), ('d', 3), ('g', 2)]
+tunings = {F   : [('f', 4), ('c', 4), ('g', 3), ('eb', 3), ('bb', 2), ('f', 2)],
+		   F6Eb: [('f', 4), ('c', 4), ('g', 3), ('eb', 3), ('bb', 2), ('eb', 2)],
+		   G   : [('g', 4), ('d', 4), ('a', 3), ('f', 3), ('c', 3), ('g', 2)], 
+		   G6F : [('g', 4), ('d', 4), ('a', 3), ('f', 3), ('c', 3), ('f', 2)], 
+		   A   : [('a', 4), ('e', 4), ('b', 3), ('g', 3), ('d', 3), ('a', 2)], 
+		   A6G : [('a', 4), ('e', 4), ('b', 3), ('g', 3), ('d', 3), ('g', 2)]
 		  }
-shift_intervals = {'F': -2, 'G': 0, 'A': 2}
+shift_intervals = {F: -2, G: 0, A: 2}
 smufl_lute_durs = {'f': 'fermataAbove',
 				   1: 'luteDurationDoubleWhole',
 				   2: 'luteDurationWhole',
@@ -64,40 +65,6 @@ smufl_lute_durs = {'f': 'fermataAbove',
 				   32: 'luteDuration16th',
 				   '.': 'augmentationDot'
 				  }
-#cp_dirs = [
-#		   'formats/lib/*',
-#		   'formats/bin/',
-#		   'machine_learning/lib/*',
-#		   'machine_learning/bin/',
-#		   'melody_models/lib/*',
-#		   'melody_models/bin/',
-#		   'representations/lib/*',
-#		   'representations/bin/',
-#		   'tabmapper/lib/*',
-#		   'tabmapper/bin/',
-#		   'utils/lib/*',
-#		   'utils/bin/',
-#		   'voice_separation/lib/*',
-#		   'voice_separation/bin/'
-#		  ]
-#cp_dirs = [
-#		   'formats\\lib\\*',
-#		   'formats\\bin\\',
-#		   'machine_learning\\lib\\*',
-#		   'machine_learning\\bin\\',
-#		   'melody_models\\lib\\*',
-#		   'melody_models\\bin\\',
-#		   'representations\\lib\\*',
-#		   'representations\\bin\\',
-#		   'tabmapper\\lib\\*',
-#		   'tabmapper\\bin\\',
-#		   'utils\\lib\\*',
-#		   'utils\\bin\\',
-#		   'voice_separation\\lib\\*',
-#		   'voice_separation\\bin\\'
-#		  ]
-#
-#cp = (':' if os.name == 'posix' else ';').join(cp_dirs)
 
 java_path = 'tools.music.PitchKeyTools' # <package>.<package>.<file>
 verbose = False
@@ -105,21 +72,6 @@ add_accid_ges = True
 
 xml_ids = []
 LEN_ID = 8
-
-# Vals for args.mode
-MINOR = '1'
-MAJOR = '0'
-# Vals for args.staff
-SINGLE = 's'
-DOUBLE = 'd'
-# Vals for args.tablature
-YES = 'y'
-NO = 'n'
-# Vals for args.type
-FLT = 'FLT'
-ILT = 'ILT'
-SLT = 'SLT'
-GLT = 'GLT'
 
 
 def _add_unique_id(prefix, arg_xml_ids):
@@ -511,14 +463,14 @@ def handle_section(section: ET.Element, ns: dict, args: argparse.Namespace): # -
 						tab_notes_by_ID[element.get(xml_id_key)] = (element, nh_note)
 
 				# 1. Add <chord>s and/or <space>s to <layer>s
-				nh_layer_1.append(chord_1 if len(chord_1) > 0 else space)
+				xml_id_space = _add_unique_id('s', xml_ids)[-1]
+				nh_space = _create_element(uri_mei + 'space', 
+										   atts=[(xml_id_key, xml_id_space),
+												 ('dur', dur)]
+										  )
+				nh_layer_1.append(chord_1 if len(chord_1) > 0 else nh_space)
 				if args.staff == DOUBLE:
-					xml_id_space = _add_unique_id('s', xml_ids)[-1]
-					space = _create_element(uri_mei + 'space', 
-											atts=[(xml_id_key, xml_id_space),
-											 	  ('dur', dur)]
-											)
-					nh_layer_2.append(chord_2 if len(chord_2) > 0 else space)
+					nh_layer_2.append(chord_2 if len(chord_2) > 0 else nh_space)
 				xml_id_reference = xml_id_chord_1 if len(chord_1) > 0 else xml_id_space
 
 				# 2. Add <dir>
@@ -527,8 +479,8 @@ def handle_section(section: ET.Element, ns: dict, args: argparse.Namespace): # -
 
 				# 3. Map tabGrp
 				chords = (chord_1, None) if args.staff == SINGLE\
-										 else (chord_1 if len(chord_1) > 0 else space,\
-										 	   chord_2 if len(chord_2) > 0 else space)
+										 else (chord_1 if len(chord_1) > 0 else nh_space,\
+										 	   chord_2 if len(chord_2) > 0 else nh_space)
 				tabGrps_by_ID[xml_id_tabGrp] = (tabGrp, chords)
 
 		# 2. Handle non-regular <measure> elements. These are elements that require <chord>, 
@@ -644,7 +596,7 @@ def _get_midi_pitch(course: int, fret: int, tuning: str): # -> int:
 	# Determine the MIDI pitches for the open courses
 	abzug = 0 if not '-' in tuning else 2
 	open_courses = [67, 62, 57, 53, 48, (43 - abzug)]
-	if tuning[0] != 'G':
+	if tuning[0] != G:
 		shift_interv = shift_intervals[tuning[0]]
 		open_courses = list(map(lambda x: x+shift_interv, open_courses))
 	return open_courses[course-1] + fret
