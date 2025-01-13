@@ -38,8 +38,8 @@ parser = argparse.ArgumentParser(prog=		 'diplomat',
 								 epilog=	 'Stores a new MEI file in the output folder (\'out/\').')
 # Optional args
 parser.add_argument('-u', '--tuning', 
-					choices=[F, F6Eb, G, G6F, A, A6G], 
-					default=G,
+					choices=[F, F6Eb, G, G6F, A, A6G, INPUT], 
+					default=INPUT,
 					metavar='', 
 					help='the tuning; options are [F, F-, G, G-, A, A-], default is G')
 parser.add_argument('-k', '--key', 
@@ -68,8 +68,8 @@ parser.add_argument('-t', '--tablature',
 					help='whether or not to retain the tab in the transcription;\
 						  options are [y, n], default is y')
 parser.add_argument('-y', '--type', 
-					choices=[FLT, ILT, SLT, GLT], 
-					default=FLT,
+					choices=[FLT, ILT, SLT, GLT, INPUT], 
+					default=INPUT,
 					metavar='',
 					help='the tablature type;\
 						  options are [FLT, ILT, SLT, GLT], default is FLT')

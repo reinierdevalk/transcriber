@@ -55,7 +55,7 @@ tunings = {F   : [('f', 4), ('c', 4), ('g', 3), ('eb', 3), ('bb', 2), ('f', 2)],
 		   A   : [('a', 4), ('e', 4), ('b', 3), ('g', 3), ('d', 3), ('a', 2)], 
 		   A6G : [('a', 4), ('e', 4), ('b', 3), ('g', 3), ('d', 3), ('g', 2)]
 		  }
-shift_intervals = {F: -2, G: 0, A: 2}
+shift_intervals = {F: -2, F6Eb: -2, G: 0, G6F: 0, A: 2, A6G: 2}
 smufl_lute_durs = {'f': 'fermataAbove',
 				   1: 'luteDurationDoubleWhole',
 				   2: 'luteDurationWhole',
@@ -71,6 +71,8 @@ verbose = False
 add_accid_ges = True
 
 xml_ids = []
+tuning = ''
+type_ = ''
 LEN_ID = 8
 
 
@@ -179,12 +181,28 @@ def handle_scoreDef(scoreDef: ET.Element, ns: dict, args: argparse.Namespace): #
 	tab_staffDef = staffGrp.find('mei:staffDef', ns)
 	tab_meterSig = tab_staffDef.find('mei:meterSig', ns)
 	tab_mensur = tab_staffDef.find('mei:mensur', ns)
+	tab_tuning = tab_staffDef.find('mei:tuning', ns)
+	global tuning
+	if args.tuning == INPUT:
+		if tab_tuning != None:
+			tuning_p_o = [(c.get('pname'), int(c.get('oct'))) for c in tab_tuning.findall(uri_mei + 'course', ns)]
+			tuning = next((k for k, v in tunings.items() if v == tuning_p_o), None)
+		else:
+			tuning = A
+	else:
+		tuning = args.tuning
+
+	global type_
+	if args.type == INPUT:
+		pass
+	else:
+		type_ = args.type
+
 	# Adapt
 	if args.tablature == YES:
 		n = tab_staffDef.get('n')
 		lines = tab_staffDef.get('lines')
 		not_type = tab_staffDef.get('notationtype')
-		tuning = tab_staffDef.find('mei:tuning', ns)
 
 		# Reset <staffDef> attributes
 		tab_staffDef.set('n', str(int(n) + (1 if args.staff == SINGLE else 2)))
@@ -192,10 +210,10 @@ def handle_scoreDef(scoreDef: ET.Element, ns: dict, args: argparse.Namespace): #
 			tab_staffDef.set('lines', '5' if lines == '5' and args.type == FLT else '6')
 			tab_staffDef.set('notationtype', notationtypes[args.type])
 		# Reset <tuning>	
-		tuning.clear()
-		tuning.set(xml_id_key, _add_unique_id('t', xml_ids)[-1])
-		for i, (pitch, octv) in enumerate(tunings[args.tuning]):
-			course = ET.SubElement(tuning, uri_mei + 'course',
+		tab_tuning.clear()
+		tab_tuning.set(xml_id_key, _add_unique_id('t', xml_ids)[-1])
+		for i, (pitch, octv) in enumerate(tunings[tuning]):
+			course = ET.SubElement(tab_tuning, uri_mei + 'course',
 								   **{f'{xml_id_key}': _add_unique_id('c', xml_ids)[-1]},
 								   n=str(i+1),
 								   pname=pitch[0],
@@ -421,7 +439,7 @@ def handle_section(section: ET.Element, ns: dict, args: argparse.Namespace): # -
 						try:
 							midi_pitch = _get_midi_pitch(int(element.get('tab.course')), 
 													 	 int(element.get('tab.fret')), 
-													 	 args.tuning)
+													 	 tuning)
 						except TypeError:
 							raise Exception(f"Element {element.tag} with attributes\
 											{element.attrib} is either missing tab.course or tab.fret")
