@@ -23,6 +23,7 @@ Useful links
 
 ElementTree tips
 - getting elements and attributes
+  - use get('<att_name>') to get an element's attribute
   - use find() to find first direct child element
   - use findall() with XPath to find first recursive child element. See 
     https://docs.python.org/3/library/xml.etree.elementtree.html#elementtree-xpath
@@ -72,7 +73,6 @@ add_accid_ges = True
 
 xml_ids = []
 tuning = ''
-type_ = ''
 LEN_ID = 8
 
 
@@ -182,6 +182,8 @@ def handle_scoreDef(scoreDef: ET.Element, ns: dict, args: argparse.Namespace): #
 	tab_meterSig = tab_staffDef.find('mei:meterSig', ns)
 	tab_mensur = tab_staffDef.find('mei:mensur', ns)
 	tab_tuning = tab_staffDef.find('mei:tuning', ns)
+	tab_not_type = tab_staffDef.get('notationtype')
+
 	global tuning
 	if args.tuning == INPUT:
 		if tab_tuning != None:
@@ -192,23 +194,25 @@ def handle_scoreDef(scoreDef: ET.Element, ns: dict, args: argparse.Namespace): #
 	else:
 		tuning = args.tuning
 
-	global type_
+	not_type = ''
 	if args.type == INPUT:
-		pass
+		if tab_not_type != None:
+			not_type = tab_not_type
+		else:
+			not_type = notationtypes[FLT]
 	else:
-		type_ = args.type
+		not_type = notationtypes[args.type]
 
 	# Adapt
 	if args.tablature == YES:
 		n = tab_staffDef.get('n')
 		lines = tab_staffDef.get('lines')
-		not_type = tab_staffDef.get('notationtype')
 
 		# Reset <staffDef> attributes
 		tab_staffDef.set('n', str(int(n) + (1 if args.staff == SINGLE else 2)))
-		if not_type != notationtypes['GLT']:
-			tab_staffDef.set('lines', '5' if lines == '5' and args.type == FLT else '6')
-			tab_staffDef.set('notationtype', notationtypes[args.type])
+		if not_type != notationtypes[GLT]:
+			tab_staffDef.set('lines', '5' if lines == '5' and not_type == notationtypes[FLT] else '6')
+			tab_staffDef.set('notationtype', not_type)
 		# Reset <tuning>	
 		tab_tuning.clear()
 		tab_tuning.set(xml_id_key, _add_unique_id('t', xml_ids)[-1])
