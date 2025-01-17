@@ -2,11 +2,11 @@ INPUT = 'i'
 
 # --tuning
 F = 'F'
-F6Eb = 'F-'
+F6Eb = 'F6Eb'
 G = 'G'
-G6F = 'G-'
+G6F = 'G6F'
 A = 'A'
-A6G = 'A-' 
+A6G = 'A6G' 
 
 # --mode
 MAJOR = '0'

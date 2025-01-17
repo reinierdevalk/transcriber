@@ -41,7 +41,7 @@ parser.add_argument('-u', '--tuning',
 					choices=[F, F6Eb, G, G6F, A, A6G, INPUT], 
 					default=INPUT,
 					metavar='', 
-					help='the tuning; options are [F, F-, G, G-, A, A-], default is G')
+					help=f'the tuning; options are [{F}, {F6Eb}, {G}, {G6F}, {A}, {A6G}], default is {G}')
 parser.add_argument('-k', '--key', 
 					choices=[str(i) for i in list(range(-5, 6, 1))], 
 					default='0', 

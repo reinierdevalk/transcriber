@@ -186,9 +186,11 @@ def handle_scoreDef(scoreDef: ET.Element, ns: dict, args: argparse.Namespace): #
 
 	global tuning
 	if args.tuning == INPUT:
+		# Tuning provided in input file: set to provided tuning
 		if tab_tuning != None:
 			tuning_p_o = [(c.get('pname'), int(c.get('oct'))) for c in tab_tuning.findall(uri_mei + 'course', ns)]
 			tuning = next((k for k, v in tunings.items() if v == tuning_p_o), None)
+		# No tuning provided in input file: set to A (E-LAUTE default)
 		else:
 			tuning = A
 	else:
@@ -196,8 +198,10 @@ def handle_scoreDef(scoreDef: ET.Element, ns: dict, args: argparse.Namespace): #
 
 	not_type = ''
 	if args.type == INPUT:
+		# Type provided in input file: set to provided type
 		if tab_not_type != None:
 			not_type = tab_not_type
+		# No type provided in input file: set to FLT (E-LAUTE default)
 		else:
 			not_type = notationtypes[FLT]
 	else:
