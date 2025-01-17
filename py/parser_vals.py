@@ -6,7 +6,7 @@ F6Eb = 'F6Eb'
 G = 'G'
 G6F = 'G6F'
 A = 'A'
-A6G = 'A6G' 
+A6G = 'A6G'
 
 # --mode
 MAJOR = '0'
