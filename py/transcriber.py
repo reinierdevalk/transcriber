@@ -44,7 +44,7 @@ parser.add_argument('-u', '--tuning',
 					help=f'the tuning; options are [{F}, {F6Eb}, {G}, {G6F}, {A}, {A6G}], default is {G}')
 parser.add_argument('-k', '--key', 
 					choices=[str(i) for i in list(range(-5, 6, 1))], 
-					default='0', 
+					default=INPUT, 
 					metavar='',
 					help='the key signature for the transcription, expressed as its\
 						  number of accidentals (where a negative number indicates flats);\
@@ -101,9 +101,9 @@ if __name__ == "__main__":
 	dipl_path = os.path.join(root_path, paths_json['paths']['DIPLOMAT_PATH'])
 	in_path = os.path.join(dipl_path, 'in') # full path to input file
 	out_path = os.path.join(dipl_path, 'out') # full path to output file
-	# TODO can go; covered by install.sh
-	if not os.path.exists(out_path):
-		os.makedirs(out_path)
+#	# TODO can go; covered by install.sh
+#	if not os.path.exists(out_path):
+#		os.makedirs(out_path)
 
 	# List files
 	infiles = []

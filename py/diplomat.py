@@ -267,7 +267,7 @@ def handle_scoreDef(scoreDef: ET.Element, ns: dict, args: argparse.Namespace): #
 		# Add <keySig>
 		keySig = ET.SubElement(nh_staffDef, uri_mei + 'keySig',
 							   **{f'{xml_id_key}': _add_unique_id('ks', xml_ids)[-1]},
-							   sig=_get_MEI_keysig(int(args.key)),
+							   sig=_get_MEI_keysig(args.key),
 							   mode='minor' if args.mode == MINOR else 'major'
 							  )
 		# Add <meterSig> or <mensur>
@@ -281,8 +281,12 @@ def handle_scoreDef(scoreDef: ET.Element, ns: dict, args: argparse.Namespace): #
 			nh_staffDef.append(nh_mensur)
 
 
-def _get_MEI_keysig(key: int): # -> str:
-	return str(key) + 's' if key > 0 else str(abs(key)) + 'f'
+def _get_MEI_keysig(key: str): # -> str:
+	if key == INPUT:
+		return str(0)
+	else:
+		return key + 's' if int(key) > 0 else str(abs(int(key))) + 'f'
+#		return str(key) + 's' if key > 0 else str(abs(key)) + 'f'
 
 
 def handle_section(section: ET.Element, ns: dict, args: argparse.Namespace): # -> None
@@ -561,7 +565,11 @@ def handle_section(section: ET.Element, ns: dict, args: argparse.Namespace): # -
 							print(eee.tag, eee.attrib)
 
 
-# NB For debugging: set, where this function is called, use_Popen=True
+# NB For debugging: set, where this function is called, use_Popen=True.
+#    - output is what the stdout (System.out.println()) printouts from Java return;
+#      it is passed to json.loads() and must be formatted as json
+#    - errors is what the stderr (System.err.println()) debugging printouts from
+#      Java return; it is printed when use_Popen=True and doesn't have to be formatted
 def _call_java(cmd: list, use_Popen: bool=False): # -> dict:
 	# For debugging
 	if use_Popen:
@@ -569,13 +577,13 @@ def _call_java(cmd: list, use_Popen: bool=False): # -> dict:
 		output, errors = process.communicate()
 		outp = output.decode('utf-8') # str
 		errors = errors.decode('utf-8') # str
-		print(errors)
-		print(outp)
+		print("errors: " + errors)
+		print("output: " + outp)
 	# For normal use
 	else:
 		process = run(cmd, capture_output=True, shell=False)
 		outp = process.stdout # bytes
-#	print(outp)
+#		print(outp)
 
 	return json.loads(outp)
 
@@ -636,6 +644,9 @@ def _get_octave(midi_pitch: int): # -> int:
 def transcribe(infiles: list, arg_paths: dict, args: argparse.Namespace): # -> None
 	inpath = arg_paths['inpath']
 	outpath = arg_paths['outpath']
+
+	if args.key == INPUT:
+		args.key = '0' # TODO call Java here
 
 	for infile in infiles:
 		filename, ext = os.path.splitext(os.path.basename(infile)) # input file name, extension
