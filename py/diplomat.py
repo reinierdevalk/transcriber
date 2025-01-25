@@ -645,6 +645,8 @@ def transcribe(infiles: list, arg_paths: dict, args: argparse.Namespace): # -> N
 	inpath = arg_paths['inpath']
 	outpath = arg_paths['outpath']
 
+	# TODO convert to MEI if needed
+
 	if args.key == INPUT:
 		args.key = '0' # TODO call Java here
 
