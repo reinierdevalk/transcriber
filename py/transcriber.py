@@ -101,9 +101,6 @@ if __name__ == "__main__":
 	dipl_path = os.path.join(root_path, paths_json['paths']['DIPLOMAT_PATH'])
 	in_path = os.path.join(dipl_path, 'in') # full path to input file
 	out_path = os.path.join(dipl_path, 'out') # full path to output file
-#	# TODO can go; covered by install.sh
-#	if not os.path.exists(out_path):
-#		os.makedirs(out_path)
 
 	# List files
 	infiles = []
@@ -113,7 +110,7 @@ if __name__ == "__main__":
 		infiles.append(infile)
 	# All files in in_path folder
 	else:
-		for ext in ['.mei', '.xml']:
+		for ext in ALLOWED_FILE_FORMATS:
 			pattern = os.path.join(in_path, f'*{ext}')
 			infiles.extend(glob.glob(pattern))
 		infiles = [os.path.basename(f) for f in infiles]

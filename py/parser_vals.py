@@ -25,3 +25,11 @@ FLT = 'FLT'
 ILT = 'ILT'
 SLT = 'SLT'
 GLT = 'GLT'
+
+MEI = '.mei'
+ASCII = '.tab'
+TBP = '.tbp'
+TC = '.tc'
+XML = '.xml'
+
+ALLOWED_FILE_FORMATS = [MEI, ASCII, TBP, TC, XML]

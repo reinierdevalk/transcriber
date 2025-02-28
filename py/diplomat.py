@@ -68,6 +68,7 @@ smufl_lute_durs = {'f': 'fermataAbove',
 				  }
 
 java_path = 'tools.music.PitchKeyTools' # <package>.<package>.<file>
+java_path_conv = 'tbp.editor.Editor' # <package>.<package>.<file>
 verbose = False
 add_accid_ges = True
 
@@ -207,6 +208,10 @@ def handle_scoreDef(scoreDef: ET.Element, ns: dict, args: argparse.Namespace): #
 	else:
 		not_type = notationtypes[args.type]
 
+	if args.key == INPUT:
+		args.key = "-1"
+#		args.key = _call_java(['java', '-cp', args.classpath, java_path, args.dev, 'key', tuning, args.file])
+
 	# Adapt
 	if args.tablature == YES:
 		n = tab_staffDef.get('n')
@@ -325,7 +330,7 @@ def handle_section(section: ET.Element, ns: dict, args: argparse.Namespace): # -
 	uri_xml = f'{{{ns['xml']}}}'
 	xml_id_key = f'{uri_xml}id'
 
-	grids_dict = _call_java(['java', '-cp', args.classpath, java_path, args.key, args.mode])
+	grids_dict = _call_java(['java', '-cp', args.classpath, java_path, args.dev, 'grids', args.key, args.mode])
 	mpcGrid = grids_dict['mpcGrid'] # list
 	mpcGridStr = str(mpcGrid)
 	altGrid = grids_dict['altGrid'] # list
@@ -465,8 +470,8 @@ def handle_section(section: ET.Element, ns: dict, args: argparse.Namespace): # -
 								accid_ges = key_sig_accid_type if midi_pitch_class in key_sig_accid_mpc else ''
 						# b. The note is in key	and there are accidentals in effect / the note is not in key
 						else:
-							cmd = ['java', '-cp', args.classpath, java_path, str(midi_pitch), args.key,
-				 	 			   mpcGridStr, altGridStr, pcGridStr, str(accidsInEffect)]
+							cmd = ['java', '-cp', args.classpath, java_path, args.dev, 'pitch', str(midi_pitch), 
+									args.key, mpcGridStr, altGridStr, pcGridStr, str(accidsInEffect)]
 							spell_dict = _call_java(cmd)
 							pname = spell_dict['pname'] # str
 							accid = spell_dict['accid'] # str
@@ -645,20 +650,45 @@ def transcribe(infiles: list, arg_paths: dict, args: argparse.Namespace): # -> N
 	inpath = arg_paths['inpath']
 	outpath = arg_paths['outpath']
 
-	# TODO convert to MEI if needed
-
-	if args.key == INPUT:
-		args.key = '0' # TODO call Java here
-
 	for infile in infiles:
 		filename, ext = os.path.splitext(os.path.basename(infile)) # input file name, extension
 		outfile = filename + '-dipl' + ext # output file
 
 		xml_file = os.path.join(inpath, infile)
 
+		# If not an .mei file: convert
+		if ext != MEI:
+			# As in abtab converter: provide three opts, always with their default vals, and no user opts
+			opts_java = '-u -t -y -h'
+			default_vals_java = 'i y i n/a' 
+			user_opts_vals_java = ''
+			cmd = ['java', '-cp', args.classpath, java_path_conv, args.dev, opts_java, default_vals_java,\
+				   user_opts_vals_java, 'false', infile, filename + MEI]
+			mei_str = _call_java(cmd)
+
+#			print('- - - - -')
+#			print(mei_str['content'])
+#			hihihihih
+
+		# TODOs
+		# - resolve comments in abtab (all the way down, at 'elif [ "$TOOL" == "transcriber" ]; then)'
+		# - figure out how parseCLIArgs(), setPieceSpecificTransParams(), getTranscriptionParams(), convertToTbp(),
+		#   ... are used together in java
+		# - issue with utils/utility repo on GitHub
+		#
+		# - fix _call_java() 'key' version --> give it args.file as arg and make mei-tbp conversion in TabImport to
+		#   extract .tbp in PitchKeyTools
+		# - use mei_str (instead of xml_file) to extract PIs; use mei_str as arg to handle_namespaces() and parse_tree()  
+		# - in handle_scoreDef(), instead of using tuning and not_type, reassign args.tuning and args.type (or do it here,
+		#   before handle_scoreDef() is called) (?)
+
 		# Manually extract processing instructions (PIs): <?xml> declaration and <?xml-model> PI 
 		with open(xml_file, 'r', encoding='utf-8') as file:
 			content = file.read()
+#			print('- - - - - -')
+#			print(content)
+#			print('- - - - - -')
+#			dsfdsf
 			lines = content.split('\n')
 			declaration = lines[0] + '\n'
 			if lines[1][1:].startswith('?xml-model'):
