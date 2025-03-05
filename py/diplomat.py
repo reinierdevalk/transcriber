@@ -675,6 +675,8 @@ def transcribe(infiles: list, arg_paths: dict, args: argparse.Namespace): # -> N
 		# - figure out how parseCLIArgs(), setPieceSpecificTransParams(), getTranscriptionParams(), convertToTbp(),
 		#   ... are used together in java
 		# - issue with utils/utility repo on GitHub
+		# - combine tool and input file information in template-MEI.mei? "Created with abtab -- converter from input_file>"
+		#   also adapt it in diplomat case!
 		#
 		# - fix _call_java() 'key' version --> give it args.file as arg and make mei-tbp conversion in TabImport to
 		#   extract .tbp in PitchKeyTools
