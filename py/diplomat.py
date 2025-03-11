@@ -41,8 +41,10 @@ import random
 import string
 import subprocess
 import xml.etree.ElementTree as ET
-from subprocess import Popen, PIPE, run
+from io import StringIO
 from parser_vals import *
+from subprocess import Popen, PIPE, run
+
 
 notationtypes = {FLT: 'tab.lute.french',
 				 ILT: 'tab.lute.italian',
@@ -119,13 +121,16 @@ def _create_element(name: str, parent: ET.Element=None, atts: list=[]): # -> ET.
 	return o
 
 
-def handle_namespaces(path: str): # -> dict
+def handle_namespaces(xml_contents: str): # -> dict
 	# There is only one namespace, whose key is an empty string -- replace the  
 	# key with something meaningful ('mei'). See
 	# https://stackoverflow.com/questions/42320779/get-the-namespaces-from-xml-with-python-elementtree/42372404#42372404
 	# To avoid an 'ns0' prefix before each tag, register the namespace as an empty string. See
 	# https://stackoverflow.com/questions/8983041/saving-xml-files-using-elementtree
-	ns = dict([node for _, node in ET.iterparse(path, events=['start-ns'])])
+	#
+	# StringIO treats a string as a file-like object that can be iterated over
+	ns = dict([node for _, node in ET.iterparse(StringIO(xml_contents), events=['start-ns'])])
+#	ns = dict([node for _, node in ET.iterparse(path, events=['start-ns'])])
 	ns['mei'] = ns.pop('')
 	ET.register_namespace('', ns['mei'])
 	ns['xml'] = 'http://www.w3.org/XML/1998/namespace'
@@ -133,7 +138,7 @@ def handle_namespaces(path: str): # -> dict
 	return ns
 
 
-def parse_tree(path: str): # -> Tuple
+def parse_tree(xml_contents: str): # -> Tuple
 	"""
 	Basic structure of <mei>:
 	
@@ -148,7 +153,8 @@ def parse_tree(path: str): # -> Tuple
 	  </music>
 	</mei>   
 	"""
-	tree = ET.parse(path)
+	tree = ET.ElementTree(ET.fromstring(xml_contents))
+#	tree = ET.parse(path)
 	root = tree.getroot()
 
 	return (tree, root)
@@ -209,8 +215,10 @@ def handle_scoreDef(scoreDef: ET.Element, ns: dict, args: argparse.Namespace): #
 		not_type = notationtypes[args.type]
 
 	if args.key == INPUT:
-		args.key = "-1"
-#		args.key = _call_java(['java', '-cp', args.classpath, java_path, args.dev, 'key', tuning, args.file])
+		if args.file.endswith(MEI): # TODO fix
+			args.key = "0"
+		else:
+			args.key = str(_call_java(['java', '-cp', args.classpath, java_path, args.dev, 'key', tuning, args.file]))
 
 	# Adapt
 	if args.tablature == YES:
@@ -348,7 +356,7 @@ def handle_section(section: ET.Element, ns: dict, args: argparse.Namespace): # -
 
 	for measure in section.iter(uri_mei + 'measure'):
 		# 0. Collect any non-regular elements in <measure> and remove them from it
-		regular_elements = [uri_mei + t for t in ['measure', 'staff', 'layer', 'tabGrp', 'tabDurSym', 'note', 'rest']]
+		regular_elements = [uri_mei + t for t in ['measure', 'staff', 'layer', 'beam', 'tabGrp', 'tabDurSym', 'note', 'rest']]
 		non_regular_elements = [elem for elem in measure.iter() if elem.tag not in regular_elements]
 		# Collect
 		elems_removed_from_measure = []
@@ -652,11 +660,10 @@ def transcribe(infiles: list, arg_paths: dict, args: argparse.Namespace): # -> N
 
 	for infile in infiles:
 		filename, ext = os.path.splitext(os.path.basename(infile)) # input file name, extension
-		outfile = filename + '-dipl' + ext # output file
+		outfile = filename + '-dipl' + MEI # output file
+		args.file = infile # NB already the case when using -f
 
-		xml_file = os.path.join(inpath, infile)
-
-		# If not an .mei file: convert
+		# Get file contents as MEI string
 		if ext != MEI:
 			# As in abtab converter: provide three opts, always with their default vals, and no user opts
 			opts_java = '-u -t -y -h'
@@ -664,55 +671,32 @@ def transcribe(infiles: list, arg_paths: dict, args: argparse.Namespace): # -> N
 			user_opts_vals_java = ''
 			cmd = ['java', '-cp', args.classpath, java_path_conv, args.dev, opts_java, default_vals_java,\
 				   user_opts_vals_java, 'false', infile, filename + MEI]
-			mei_str = _call_java(cmd)
-
-#			print('- - - - -')
-#			print(mei_str['content'])
-#			hihihihih
+			res = _call_java(cmd)
+			mei_str = res['content']
+		else:
+			with open(os.path.join(inpath, infile), 'r', encoding='utf-8') as file:
+				mei_str = file.read()
 
 		# TODOs
-		# - resolve comments in abtab (all the way down, at 'elif [ "$TOOL" == "transcriber" ]; then)'
-		# - figure out how parseCLIArgs(), setPieceSpecificTransParams(), getTranscriptionParams(), convertToTbp(),
-		#   ... are used together in java
-		# - issue with utils/utility repo on GitHub
-		# - combine tool and input file information in template-MEI.mei? "Created with abtab -- converter from input_file>"
-		#   also adapt it in diplomat case!
-		#
-		# - fix _call_java() 'key' version --> give it args.file as arg and make mei-tbp conversion in TabImport to
-		#   extract .tbp in PitchKeyTools
-		# - use mei_str (instead of xml_file) to extract PIs; use mei_str as arg to handle_namespaces() and parse_tree()  
 		# - in handle_scoreDef(), instead of using tuning and not_type, reassign args.tuning and args.type (or do it here,
 		#   before handle_scoreDef() is called) (?)
 
-		# Manually extract processing instructions (PIs): <?xml> declaration and <?xml-model> PI 
-		with open(xml_file, 'r', encoding='utf-8') as file:
-			content = file.read()
-#			print('- - - - - -')
-#			print(content)
-#			print('- - - - - -')
-#			dsfdsf
-			lines = content.split('\n')
-			declaration = lines[0] + '\n'
-			if lines[1][1:].startswith('?xml-model'):
-				model_pi = lines[1] + '\n'
-			else:
-				model_pi = ''
-
 		# Handle namespaces
-		ns = handle_namespaces(xml_file)
+		ns = handle_namespaces(mei_str)
 		uri = '{' + ns['mei'] + '}'
 
-		# Get the root, tree, and main MEI elements (<meiHead> and <music>);
-		# collect all xml:ids
-		tree, mei = parse_tree(xml_file)
-		meiHead = mei.find('mei:meiHead', ns)
-		music = mei.find('mei:music', ns)
-		xml_id = f"{{{ns['xml']}}}id"
-		global xml_ids
-		xml_ids = [elem.attrib[xml_id] for elem in mei.iter() if xml_id in elem.attrib]
-
-		# Handle <scoreDef>
+		# Get the tree, root, and main MEI elements (<meiHead>, <score>)
+		tree, root = parse_tree(mei_str)
+		meiHead = root.find('mei:meiHead', ns)
+		music = root.find('mei:music', ns)
 		score = music.findall('.//' + uri + 'score')[0]
+
+		# Collect all xml:ids
+		global xml_ids
+		xml_id = f"{{{ns['xml']}}}id"
+		xml_ids = [elem.attrib[xml_id] for elem in root.iter() if xml_id in elem.attrib]
+
+		# Handle <scoreDef>		
 		scoreDef = score.find('mei:scoreDef', ns)
 		handle_scoreDef(scoreDef, ns, args)
 
@@ -723,11 +707,15 @@ def transcribe(infiles: list, arg_paths: dict, args: argparse.Namespace): # -> N
 		# Fix indentation
 		ET.indent(tree, space='\t', level=0)
 
-#		# Write to file
-#		tree.write(os.path.join(outpath, outfile))
-
-		# Prepend declaration and processing instructions
-		xml_str = ET.tostring(tree.getroot(), encoding='unicode')
+		# Add processing instructions (<?xml> declaration and <?xml-model> processing 
+		# instructions), which are not included in root, and write to file 
+		lines = mei_str.split('\n')
+		declaration = lines[0] + '\n'
+		model_pi = ''
+		for line in lines:
+			if line[1:].startswith('?xml-model'):
+				model_pi += line + '\n'
+		xml_str = ET.tostring(root, encoding='unicode')
 		xml_str = f'{declaration}{model_pi}{xml_str}'
 		with open(os.path.join(outpath, outfile), 'w', encoding='utf-8') as file:
 			file.write(xml_str)
