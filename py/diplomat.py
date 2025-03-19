@@ -661,6 +661,9 @@ def transcribe(infiles: list, arg_paths: dict, args: argparse.Namespace): # -> N
 	for infile in infiles:
 		filename, ext = os.path.splitext(os.path.basename(infile)) # input file name, extension
 		outfile = filename + '-dipl' + MEI # output file
+#		print(args)
+#		print(args.file)
+#		sdfsdfsdf
 		args.file = infile # NB already the case when using -f
 
 		# Get file contents as MEI string
