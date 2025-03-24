@@ -486,7 +486,6 @@ def handle_section(section: ET.Element, ns: dict, args: argparse.Namespace): # -
 							if add_accid_ges:
 								accid_ges = spell_dict['accid.ges'] # str
 							accidsInEffect = spell_dict['accidsInEffect'] # list
-
 						accid_part = [('accid', accid)] if accid != '' else []
 						if add_accid_ges:
 							# accid.ges overrules accid
@@ -654,71 +653,68 @@ def _get_octave(midi_pitch: int): # -> int:
 	return int((c / 12) - 1)
 
 
-def transcribe(infiles: list, arg_paths: dict, args: argparse.Namespace): # -> None
+def transcribe(infile: str, arg_paths: dict, args: argparse.Namespace): # -> None
 	inpath = arg_paths['inpath']
 	outpath = arg_paths['outpath']
 
-	for infile in infiles:
-		filename, ext = os.path.splitext(os.path.basename(infile)) # input file name, extension
-		outfile = filename + '-dipl' + MEI # output file
-#		print(args)
-#		print(args.file)
-#		sdfsdfsdf
-		args.file = infile # NB already the case when using -f
+	filename, ext = os.path.splitext(os.path.basename(infile)) # input file name, extension
+	outfile = filename + '-dipl' + MEI # output file
+	args.file = infile # NB already the case when using -f
 
-		# Get file contents as MEI string
-		if ext != MEI:
-			# As in abtab converter: provide three opts, always with their default vals, and no user opts
-			opts_java = '-u -t -y -h'
-			default_vals_java = 'i y i n/a' 
-			user_opts_vals_java = ''
-			cmd = ['java', '-cp', args.classpath, java_path_conv, args.dev, opts_java, default_vals_java,\
-				   user_opts_vals_java, 'false', infile, filename + MEI]
-			res = _call_java(cmd)
-			mei_str = res['content']
-		else:
-			with open(os.path.join(inpath, infile), 'r', encoding='utf-8') as file:
-				mei_str = file.read()
+	# Get file contents as MEI string
+	if ext != MEI:
+		# As in abtab converter: provide three opts, always with their default vals, and no user opts
+		opts_java = '-u -t -y -h'
+		default_vals_java = 'i y i n/a' 
+		user_opts_vals_java = ''
+		cmd = ['java', '-cp', args.classpath, java_path_conv, args.dev, opts_java, default_vals_java,\
+			   user_opts_vals_java, 'false', infile, filename + MEI]
+		res = _call_java(cmd)
+		mei_str = res['content']
+	else:
+		with open(os.path.join(inpath, infile), 'r', encoding='utf-8') as file:
+			mei_str = file.read()
 
-		# TODOs
-		# - in handle_scoreDef(), instead of using tuning and not_type, reassign args.tuning and args.type (or do it here,
-		#   before handle_scoreDef() is called) (?)
+	# TODOs
+	# - in handle_scoreDef(), instead of using tuning and not_type, reassign args.tuning and args.type (or do it here,
+	#   before handle_scoreDef() is called) (?)
 
-		# Handle namespaces
-		ns = handle_namespaces(mei_str)
-		uri = '{' + ns['mei'] + '}'
+	# Handle namespaces
+	ns = handle_namespaces(mei_str)
+	uri = '{' + ns['mei'] + '}'
 
-		# Get the tree, root, and main MEI elements (<meiHead>, <score>)
-		tree, root = parse_tree(mei_str)
-		meiHead = root.find('mei:meiHead', ns)
-		music = root.find('mei:music', ns)
-		score = music.findall('.//' + uri + 'score')[0]
+	# Get the tree, root, and main MEI elements (<meiHead>, <score>)
+	tree, root = parse_tree(mei_str)
+	meiHead = root.find('mei:meiHead', ns)
+	music = root.find('mei:music', ns)
+	score = music.findall('.//' + uri + 'score')[0]
 
-		# Collect all xml:ids
-		global xml_ids
-		xml_id = f"{{{ns['xml']}}}id"
-		xml_ids = [elem.attrib[xml_id] for elem in root.iter() if xml_id in elem.attrib]
+	# Collect all xml:ids
+	global xml_ids
+	xml_id = f"{{{ns['xml']}}}id"
+	xml_ids = [elem.attrib[xml_id] for elem in root.iter() if xml_id in elem.attrib]
 
-		# Handle <scoreDef>		
-		scoreDef = score.find('mei:scoreDef', ns)
-		handle_scoreDef(scoreDef, ns, args)
+	# Handle <scoreDef>		
+	scoreDef = score.find('mei:scoreDef', ns)
+	handle_scoreDef(scoreDef, ns, args)
 
-		# Handle <section>
-		section = score.find('mei:section', ns)
+	# Handle <section>s
+	sections = score.findall('mei:section', ns)
+	for section in sections:
 		handle_section(section, ns, args)
 
-		# Fix indentation
-		ET.indent(tree, space='\t', level=0)
+	# Fix indentation
+	ET.indent(tree, space='\t', level=0)
 
-		# Add processing instructions (<?xml> declaration and <?xml-model> processing 
-		# instructions), which are not included in root, and write to file 
-		lines = mei_str.split('\n')
-		declaration = lines[0] + '\n'
-		model_pi = ''
-		for line in lines:
-			if line[1:].startswith('?xml-model'):
-				model_pi += line + '\n'
-		xml_str = ET.tostring(root, encoding='unicode')
-		xml_str = f'{declaration}{model_pi}{xml_str}'
-		with open(os.path.join(outpath, outfile), 'w', encoding='utf-8') as file:
-			file.write(xml_str)
+	# Add processing instructions (<?xml> declaration and <?xml-model> processing 
+	# instructions), which are not included in root, and write to file 
+	lines = mei_str.split('\n')
+	declaration = lines[0] + '\n'
+	model_pi = ''
+	for line in lines:
+		if line[1:].startswith('?xml-model'):
+			model_pi += line + '\n'
+	xml_str = ET.tostring(root, encoding='unicode')
+	xml_str = f'{declaration}{model_pi}{xml_str}'
+	with open(os.path.join(outpath, outfile), 'w', encoding='utf-8') as file:
+		file.write(xml_str)

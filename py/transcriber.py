@@ -115,16 +115,6 @@ if __name__ == "__main__":
 			infiles.extend(glob.glob(pattern))
 		infiles = [os.path.basename(f) for f in infiles]
 
-#	print("FILES", infiles)
-#	print(scriptpath)
-#	print("ROOT", args.rootpath)
-#	print("LIB", args.libpath)
-#	print(args.classpath)
-#	print("DIPL", dipl_path)
-#	paths = {
-#			 'inpath': os.path.join(scriptpath, 'in'), # full path to input file
-#			 'outpath': os.path.join(scriptpath, 'out') # full path to output file
-#			}
-
 	paths = {'inpath': in_path, 'outpath': out_path}
-	transcribe(infiles, paths, args)
+	for infile in infiles:
+		transcribe(infile, paths, args)
