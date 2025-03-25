@@ -23,10 +23,11 @@ Useful links
 
 ElementTree tips
 - getting elements and attributes
-  - use get('<att_name>') to get an element's attribute
-  - use find() to find first direct child element
-  - use findall() with XPath to find first recursive child element. See 
-    https://docs.python.org/3/library/xml.etree.elementtree.html#elementtree-xpath
+  - get('<att>') gets an element's attribute
+  - find(<tag>) finds the first matching direct child (depth = 1)
+  - findall(<tag>) finds all matching direct children (depth = 1) 
+  - findall(.//<tag>) finds all matching elements at any depth (recursive search)
+    - use findall() with XPath: see https://docs.python.org/3/library/xml.etree.elementtree.html#elementtree-xpath
 - namespaces
   - element namespaces: the namespace dict is mostly useful for element searches (find(), findall())
   - attribute namespaces: need to be provided explicitly in the get(), or constructed from the namespace dict
@@ -190,6 +191,7 @@ def handle_scoreDef(scoreDef: ET.Element, ns: dict, args: argparse.Namespace): #
 	tab_mensur = tab_staffDef.find('mei:mensur', ns)
 	tab_tuning = tab_staffDef.find('mei:tuning', ns)
 	tab_not_type = tab_staffDef.get('notationtype')
+	is_first_scoreDef = tab_tuning != None
 
 	global tuning
 	if args.tuning == INPUT:
@@ -230,17 +232,19 @@ def handle_scoreDef(scoreDef: ET.Element, ns: dict, args: argparse.Namespace): #
 		if not_type != notationtypes[GLT]:
 			tab_staffDef.set('lines', '5' if lines == '5' and not_type == notationtypes[FLT] else '6')
 			tab_staffDef.set('notationtype', not_type)
-		# Reset <tuning>	
-		tab_tuning.clear()
-		tab_tuning.set(xml_id_key, _add_unique_id('t', xml_ids)[-1])
-		for i, (pitch, octv) in enumerate(tunings[tuning]):
-			course = ET.SubElement(tab_tuning, uri_mei + 'course',
-								   **{f'{xml_id_key}': _add_unique_id('c', xml_ids)[-1]},
-								   n=str(i+1),
-								   pname=pitch[0],
-								   oct=str(octv),
-								   accid='' if len(pitch) == 1 else ('f' if pitch[1] == 'b' else 's')
-								  )
+		# Reset <tuning>
+		# <tuning> is only used in first staffDef, not in those for any subsequent <section>s 
+		if is_first_scoreDef:
+			tab_tuning.clear()
+			tab_tuning.set(xml_id_key, _add_unique_id('t', xml_ids)[-1])
+			for i, (pitch, octv) in enumerate(tunings[tuning]):
+				course = ET.SubElement(tab_tuning, uri_mei + 'course',
+								   	   **{f'{xml_id_key}': _add_unique_id('c', xml_ids)[-1]},
+								   	   n=str(i+1),
+								       pname=pitch[0],
+								       oct=str(octv),
+								       accid='' if len(pitch) == 1 else ('f' if pitch[1] == 'b' else 's')
+								      )
 	# Remove
 	else:
 		staffGrp.remove(tab_staffDef)
@@ -262,27 +266,33 @@ def handle_scoreDef(scoreDef: ET.Element, ns: dict, args: argparse.Namespace): #
 		if i == 1:
 			nh_staffDef.set('dir.dist', '4')
 		# Add <clef>
-		if args.staff == SINGLE:
-			clef = _create_element(uri_mei + 'clef', 
-								   parent=nh_staffDef, 
-								   atts=[(xml_id_key, _add_unique_id('c', xml_ids)[-1]),
-								   		 ('shape', 'G'), 
-										 ('line', '2'),
-										 ('dis', '8'), 
-										 ('dis.place', 'below')]
-								  )
-		else:
-			clef = ET.SubElement(nh_staffDef, uri_mei + 'clef', 
-								 **{f'{xml_id_key}': _add_unique_id('c', xml_ids)[-1]},
-								 shape='G' if i==1 else 'F',
-								 line='2' if i==1 else '4'
-								)
+		# <clef> is only used in first staffDef, not in those for any subsequent <section>s
+		if is_first_scoreDef:
+			if args.staff == SINGLE:
+				clef = _create_element(uri_mei + 'clef', 
+									   parent=nh_staffDef, 
+									   atts=[(xml_id_key, _add_unique_id('c', xml_ids)[-1]),
+									   		 ('shape', 'G'), 
+											 ('line', '2'),
+											 ('dis', '8'), 
+											 ('dis.place', 'below')]
+								  	  )
+			else:
+				clef = ET.SubElement(nh_staffDef, uri_mei + 'clef', 
+									 **{f'{xml_id_key}': _add_unique_id('c', xml_ids)[-1]},
+									 shape='G' if i==1 else 'F',
+									 line='2' if i==1 else '4'
+									)
 		# Add <keySig>
-		keySig = ET.SubElement(nh_staffDef, uri_mei + 'keySig',
-							   **{f'{xml_id_key}': _add_unique_id('ks', xml_ids)[-1]},
-							   sig=_get_MEI_keysig(args.key),
-							   mode='minor' if args.mode == MINOR else 'major'
-							  )
+		# <keySig> is only used in first staffDef, not in those for any subsequent <section>s
+		# NB Theoretically, the <section> could be in a different key -- but currently a single key 
+		#    is assumed for the whole piece
+		if is_first_scoreDef:
+			keySig = ET.SubElement(nh_staffDef, uri_mei + 'keySig',
+								   **{f'{xml_id_key}': _add_unique_id('ks', xml_ids)[-1]},
+								   sig=_get_MEI_keysig(args.key),
+								   mode='minor' if args.mode == MINOR else 'major'
+								  )
 		# Add <meterSig> or <mensur>
 		if tab_meterSig is not None:
 			nh_meterSig = copy.deepcopy(tab_meterSig)
@@ -683,20 +693,21 @@ def transcribe(infile: str, arg_paths: dict, args: argparse.Namespace): # -> Non
 	ns = handle_namespaces(mei_str)
 	uri = '{' + ns['mei'] + '}'
 
-	# Get the tree, root, and main MEI elements (<meiHead>, <score>)
+	# Get the tree, root (<mei>), and main MEI elements (<meiHead>, <score>)
 	tree, root = parse_tree(mei_str)
 	meiHead = root.find('mei:meiHead', ns)
 	music = root.find('mei:music', ns)
-	score = music.findall('.//' + uri + 'score')[0]
+	score = music.findall('.//' + uri + 'score')[0] 
 
 	# Collect all xml:ids
 	global xml_ids
 	xml_id = f"{{{ns['xml']}}}id"
 	xml_ids = [elem.attrib[xml_id] for elem in root.iter() if xml_id in elem.attrib]
 
-	# Handle <scoreDef>		
-	scoreDef = score.find('mei:scoreDef', ns)
-	handle_scoreDef(scoreDef, ns, args)
+	# Handle <scoreDef>s		
+	scoreDefs = score.findall('.//' + uri + 'scoreDef')
+	for scoreDef in scoreDefs:
+		handle_scoreDef(scoreDef, ns, args)
 
 	# Handle <section>s
 	sections = score.findall('mei:section', ns)
