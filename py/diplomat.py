@@ -47,20 +47,20 @@ from parser_vals import *
 from subprocess import Popen, PIPE, run
 
 
-notationtypes = {FLT: 'tab.lute.french',
+NOTATIONTYPES = {FLT: 'tab.lute.french',
 				 ILT: 'tab.lute.italian',
 				 SLT: 'tab.lute.spanish',
 				 GLT: 'tab.lute.german'
 				}
-tunings = {F   : [('f', 4), ('c', 4), ('g', 3), ('eb', 3), ('bb', 2), ('f', 2)],
+TUNINGS = {F   : [('f', 4), ('c', 4), ('g', 3), ('eb', 3), ('bb', 2), ('f', 2)],
 		   F6Eb: [('f', 4), ('c', 4), ('g', 3), ('eb', 3), ('bb', 2), ('eb', 2)],
 		   G   : [('g', 4), ('d', 4), ('a', 3), ('f', 3), ('c', 3), ('g', 2)], 
 		   G6F : [('g', 4), ('d', 4), ('a', 3), ('f', 3), ('c', 3), ('f', 2)], 
 		   A   : [('a', 4), ('e', 4), ('b', 3), ('g', 3), ('d', 3), ('a', 2)], 
 		   A6G : [('a', 4), ('e', 4), ('b', 3), ('g', 3), ('d', 3), ('g', 2)]
 		  }
-shift_intervals = {F: -2, F6Eb: -2, G: 0, G6F: 0, A: 2, A6G: 2}
-smufl_lute_durs = {'f': 'fermataAbove',
+SHIFT_INTERVALS = {F: -2, F6Eb: -2, G: 0, G6F: 0, A: 2, A6G: 2}
+SMUFL_LUTE_DURS = {'f': 'fermataAbove',
 				   1: 'luteDurationDoubleWhole',
 				   2: 'luteDurationWhole',
 				   4: 'luteDurationHalf', 
@@ -80,7 +80,7 @@ tuning = ''
 LEN_ID = 8
 
 
-def _add_unique_id(prefix, arg_xml_ids):
+def _add_unique_id(prefix: str, arg_xml_ids: list): # -> list
 	"""
 	Generates a unique ID with the given prefix and adds it to given list.
 
@@ -198,7 +198,7 @@ def handle_scoreDef(scoreDef: ET.Element, ns: dict, args: argparse.Namespace): #
 		# Tuning provided in input file: set to provided tuning
 		if tab_tuning != None:
 			tuning_p_o = [(c.get('pname'), int(c.get('oct'))) for c in tab_tuning.findall(uri_mei + 'course', ns)]
-			tuning = next((k for k, v in tunings.items() if v == tuning_p_o), None)
+			tuning = next((k for k, v in TUNINGS.items() if v == tuning_p_o), None)
 		# No tuning provided in input file: set to A (E-LAUTE default)
 		else:
 			tuning = A
@@ -212,9 +212,9 @@ def handle_scoreDef(scoreDef: ET.Element, ns: dict, args: argparse.Namespace): #
 			not_type = tab_not_type
 		# No type provided in input file: set to FLT (E-LAUTE default)
 		else:
-			not_type = notationtypes[FLT]
+			not_type = NOTATIONTYPES[FLT]
 	else:
-		not_type = notationtypes[args.type]
+		not_type = NOTATIONTYPES[args.type]
 
 	if args.key == INPUT:
 		if args.file.endswith(MEI): # TODO fix
@@ -229,15 +229,15 @@ def handle_scoreDef(scoreDef: ET.Element, ns: dict, args: argparse.Namespace): #
 
 		# Reset <staffDef> attributes
 		tab_staffDef.set('n', str(int(n) + (1 if args.staff == SINGLE else 2)))
-		if not_type != notationtypes[GLT]:
-			tab_staffDef.set('lines', '5' if lines == '5' and not_type == notationtypes[FLT] else '6')
+		if not_type != NOTATIONTYPES[GLT]:
+			tab_staffDef.set('lines', '5' if lines == '5' and not_type == NOTATIONTYPES[FLT] else '6')
 			tab_staffDef.set('notationtype', not_type)
 		# Reset <tuning>
 		# <tuning> is only used in first staffDef, not in those for any subsequent <section>s 
 		if is_first_scoreDef:
 			tab_tuning.clear()
 			tab_tuning.set(xml_id_key, _add_unique_id('t', xml_ids)[-1])
-			for i, (pitch, octv) in enumerate(tunings[tuning]):
+			for i, (pitch, octv) in enumerate(TUNINGS[tuning]):
 				course = ET.SubElement(tab_tuning, uri_mei + 'course',
 								   	   **{f'{xml_id_key}': _add_unique_id('c', xml_ids)[-1]},
 								   	   n=str(i+1),
@@ -592,7 +592,7 @@ def handle_section(section: ET.Element, ns: dict, args: argparse.Namespace): # -
 #      it is passed to json.loads() and must be formatted as json
 #    - errors is what the stderr (System.err.println()) debugging printouts from
 #      Java return; it is printed when use_Popen=True and doesn't have to be formatted
-def _call_java(cmd: list, use_Popen: bool=False): # -> dict:
+def _call_java(cmd: list, use_Popen: bool=True): # -> dict:
 	# For debugging
 	if use_Popen:
 		process = Popen(cmd, stdout=PIPE, stderr=PIPE, shell=False)
@@ -627,14 +627,14 @@ def _make_dir(xml_id: str, dur: int, dots: int, ns: dict): # -> 'ET.Element'
 						parent=d, 
 						atts=[(xml_id_key, _add_unique_id('s', xml_ids)[-1]),
 							  ('glyph.auth', 'smufl'), 
-							  ('glyph.name', smufl_lute_durs[int(dur)])]
+							  ('glyph.name', SMUFL_LUTE_DURS[int(dur)])]
 				   	   )
 		if dots != None:
 			_create_element(uri_mei + 'symbol', 
 							parent=d, 
 							atts=[(xml_id_key, _add_unique_id('s', xml_ids)[-1]),
 								  ('glyph.auth', 'smufl'), 
-							 	  ('glyph.name', smufl_lute_durs['.'])]
+							 	  ('glyph.name', SMUFL_LUTE_DURS['.'])]
 						   )
 	# Fermata case 
 	else:
@@ -642,7 +642,7 @@ def _make_dir(xml_id: str, dur: int, dots: int, ns: dict): # -> 'ET.Element'
 						parent=d, 
 						atts=[(xml_id_key, _add_unique_id('s', xml_ids)[-1]),
 							  ('glyph.auth', 'smufl'), 
-						 	  ('glyph.name', smufl_lute_durs['f'])]
+						 	  ('glyph.name', SMUFL_LUTE_DURS['f'])]
 				   	   )
 
 	return d
@@ -653,7 +653,7 @@ def _get_midi_pitch(course: int, fret: int, tuning: str): # -> int:
 	abzug = 0 if not '-' in tuning else 2
 	open_courses = [67, 62, 57, 53, 48, (43 - abzug)]
 	if tuning[0] != G:
-		shift_interv = shift_intervals[tuning[0]]
+		shift_interv = SHIFT_INTERVALS[tuning[0]]
 		open_courses = list(map(lambda x: x+shift_interv, open_courses))
 	return open_courses[course-1] + fret
 
@@ -691,7 +691,8 @@ def transcribe(infile: str, arg_paths: dict, args: argparse.Namespace): # -> Non
 
 	# Handle namespaces
 	ns = handle_namespaces(mei_str)
-	uri = '{' + ns['mei'] + '}'
+	uri = f'{{{ns['mei']}}}'
+#	uri = '{' + ns['mei'] + '}'
 
 	# Get the tree, root (<mei>), and main MEI elements (<meiHead>, <score>)
 	tree, root = parse_tree(mei_str)
