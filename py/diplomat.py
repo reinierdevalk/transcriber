@@ -75,6 +75,9 @@ java_path_conv = 'tbp.editor.Editor' # <package>.<package>.<file>
 verbose = False
 add_accid_ges = True
 
+uri_mei = ''
+uri_xml = ''
+xml_id_key = ''
 xml_ids = []
 tuning = ''
 LEN_ID = 8
@@ -178,10 +181,6 @@ def handle_scoreDef(scoreDef: ET.Element, ns: dict, args: argparse.Namespace): #
 	The nested inner <staffGrp> is for the notehead notation and contains one <staffDef> in case 
 	of a single staff, otherwise two; the lower <staffDef> is for the tablature. 
 	"""
-
-	uri_mei = f'{{{ns['mei']}}}'
-	uri_xml = f'{{{ns['xml']}}}'
-	xml_id_key = f'{uri_xml}id'
 
 	staffGrp = scoreDef.find('mei:staffGrp', ns)
 
@@ -343,10 +342,6 @@ def handle_section(section: ET.Element, ns: dict, args: argparse.Namespace): # -
 	by other elements such as <fermata> or <fing>. In case of a double staff for 
 	the notehead notation, there is also a middle staff. 
 	"""
-
-	uri_mei = f'{{{ns['mei']}}}'
-	uri_xml = f'{{{ns['xml']}}}'
-	xml_id_key = f'{uri_xml}id'
 
 	grids_dict = _call_java(['java', '-cp', args.classpath, java_path, args.dev, 'grids', args.key, args.mode])
 	mpcGrid = grids_dict['mpcGrid'] # list
@@ -592,7 +587,7 @@ def handle_section(section: ET.Element, ns: dict, args: argparse.Namespace): # -
 #      it is passed to json.loads() and must be formatted as json
 #    - errors is what the stderr (System.err.println()) debugging printouts from
 #      Java return; it is printed when use_Popen=True and doesn't have to be formatted
-def _call_java(cmd: list, use_Popen: bool=True): # -> dict:
+def _call_java(cmd: list, use_Popen: bool=False): # -> dict:
 	# For debugging
 	if use_Popen:
 		process = Popen(cmd, stdout=PIPE, stderr=PIPE, shell=False)
@@ -611,10 +606,6 @@ def _call_java(cmd: list, use_Popen: bool=True): # -> dict:
 
 
 def _make_dir(xml_id: str, dur: int, dots: int, ns: dict): # -> 'ET.Element'
-	uri_mei = f'{{{ns['mei']}}}'
-	uri_xml = f'{{{ns['xml']}}}'
-	xml_id_key = f'{uri_xml}id'
-
 	d = ET.Element(uri_mei + 'dir', 
 				   **{f'{xml_id_key}': _add_unique_id('d', xml_ids)[-1]},
 				   place='above', 
@@ -691,22 +682,25 @@ def transcribe(infile: str, arg_paths: dict, args: argparse.Namespace): # -> Non
 
 	# Handle namespaces
 	ns = handle_namespaces(mei_str)
-	uri = f'{{{ns['mei']}}}'
-#	uri = '{' + ns['mei'] + '}'
+	global uri_mei
+	uri_mei = f'{{{ns['mei']}}}'
+	global uri_xml
+	uri_xml = f'{{{ns['xml']}}}'
+	global xml_id_key
+	xml_id_key = f'{uri_xml}id'
 
 	# Get the tree, root (<mei>), and main MEI elements (<meiHead>, <score>)
 	tree, root = parse_tree(mei_str)
 	meiHead = root.find('mei:meiHead', ns)
 	music = root.find('mei:music', ns)
-	score = music.findall('.//' + uri + 'score')[0] 
+	score = music.findall('.//' + uri_mei + 'score')[0] 
 
 	# Collect all xml:ids
 	global xml_ids
-	xml_id = f"{{{ns['xml']}}}id"
-	xml_ids = [elem.attrib[xml_id] for elem in root.iter() if xml_id in elem.attrib]
+	xml_ids = [elem.attrib[xml_id_key] for elem in root.iter() if xml_id_key in elem.attrib]
 
 	# Handle <scoreDef>s		
-	scoreDefs = score.findall('.//' + uri + 'scoreDef')
+	scoreDefs = score.findall('.//' + uri_mei + 'scoreDef')
 	for scoreDef in scoreDefs:
 		handle_scoreDef(scoreDef, ns, args)
 
