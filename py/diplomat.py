@@ -24,10 +24,24 @@ Useful links
 ElementTree tips
 - getting elements and attributes
   - get('<att>') gets an element's attribute
-  - find(<tag>) finds the first matching direct child (depth = 1)
-  - findall(<tag>) finds all matching direct children (depth = 1) 
-  - findall(.//<tag>) finds all matching elements at any depth (recursive search)
-    - use findall() with XPath: see https://docs.python.org/3/library/xml.etree.elementtree.html#elementtree-xpath
+  - find() and findall()
+    - NB uri_mei must look like
+      uri_mei = '{http://www.music-encoding.org/ns/mei}'
+      NB ns must look like
+      ns = {'mei': 'http://www.music-encoding.org/ns/mei', 'xml': 'http://www.w3.org/XML/1998/namespace'}
+    - find() finds the first matching direct child (depth = 1)
+      - find('mei:scoreDef', ns)
+      - find({f'{uri_mei}scoreDef')
+    - find(f'.//...') finds the first matching element at any depth (recursive search)  
+      - find(f'.//mei:scoreDef', ns)
+      - find(f'.//{uri_mei}scoreDef')
+    - findall() finds all matching direct children (depth = 1)
+      - findall('mei:scoreDef', ns)
+      - findall({f'{uri_mei}scoreDef')
+    - findall(f'.//...') finds all matching elements at any depth (recursive search)
+      - findall(f'.//mei:scoreDef', ns)
+      - findall(f'.//{uri_mei}scoreDef')
+  - use findall() with XPath: see https://docs.python.org/3/library/xml.etree.elementtree.html#elementtree-xpath
 - namespaces
   - element namespaces: the namespace dict is mostly useful for element searches (find(), findall())
   - attribute namespaces: need to be provided explicitly in the get(), or constructed from the namespace dict
@@ -196,7 +210,7 @@ def handle_scoreDef(scoreDef: ET.Element, ns: dict, args: argparse.Namespace): #
 	if args.tuning == INPUT:
 		# Tuning provided in input file: set to provided tuning
 		if tab_tuning != None:
-			tuning_p_o = [(c.get('pname'), int(c.get('oct'))) for c in tab_tuning.findall(uri_mei + 'course', ns)]
+			tuning_p_o = [(c.get('pname'), int(c.get('oct'))) for c in tab_tuning.findall(f'mei:course', ns)]
 			tuning = next((k for k, v in TUNINGS.items() if v == tuning_p_o), None)
 		# No tuning provided in input file: set to A (E-LAUTE default)
 		else:
@@ -693,14 +707,14 @@ def transcribe(infile: str, arg_paths: dict, args: argparse.Namespace): # -> Non
 	tree, root = parse_tree(mei_str)
 	meiHead = root.find('mei:meiHead', ns)
 	music = root.find('mei:music', ns)
-	score = music.findall('.//' + uri_mei + 'score')[0] 
+	score = music.find(f'.//mei:score', ns)
 
 	# Collect all xml:ids
 	global xml_ids
 	xml_ids = [elem.attrib[xml_id_key] for elem in root.iter() if xml_id_key in elem.attrib]
 
-	# Handle <scoreDef>s		
-	scoreDefs = score.findall('.//' + uri_mei + 'scoreDef')
+	# Handle <scoreDef>s
+	scoreDefs = score.findall(f'.//mei:scoreDef', ns)
 	for scoreDef in scoreDefs:
 		handle_scoreDef(scoreDef, ns, args)
 
