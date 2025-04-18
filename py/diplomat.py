@@ -601,7 +601,7 @@ def handle_section(section: ET.Element, ns: dict, args: argparse.Namespace): # -
 #      it is passed to json.loads() and must be formatted as json
 #    - errors is what the stderr (System.err.println()) debugging printouts from
 #      Java return; it is printed when use_Popen=True and doesn't have to be formatted
-def _call_java(cmd: list, use_Popen: bool=True): # -> dict:
+def _call_java(cmd: list, use_Popen: bool=False): # -> dict:
 	# Replace empty strings
 	for i in range(len(cmd)):
 		if cmd[i] == '':
