@@ -60,6 +60,7 @@ from io import StringIO
 from parser_vals import *
 from subprocess import Popen, PIPE, run
 
+# TODO clean up imports after making utils module
 
 NOTATIONTYPES = {FLT: 'tab.lute.french',
 				 ILT: 'tab.lute.italian',
@@ -95,6 +96,11 @@ xml_id_key = ''
 xml_ids = []
 tuning = ''
 LEN_ID = 8
+
+
+def _get_tuning(tuning: ET.Element): # -> str
+	tuning_p_o = [(c.get('pname'), int(c.get('oct'))) for c in tuning.findall('mei:course', ns)]
+	return next((k for k, v in TUNINGS.items() if v == tuning_p_o), None)
 
 
 def _add_unique_id(prefix: str, arg_xml_ids: list): # -> list
@@ -210,8 +216,9 @@ def handle_scoreDef(scoreDef: ET.Element, ns: dict, args: argparse.Namespace): #
 	if args.tuning == INPUT:
 		# Tuning provided in input file: set to provided tuning
 		if tab_tuning != None:
-			tuning_p_o = [(c.get('pname'), int(c.get('oct'))) for c in tab_tuning.findall('mei:course', ns)]
-			tuning = next((k for k, v in TUNINGS.items() if v == tuning_p_o), None)
+			tuning = _get_tuning(tab_tuning)
+#			tuning_p_o = [(c.get('pname'), int(c.get('oct'))) for c in tab_tuning.findall('mei:course', ns)]
+#			tuning = next((k for k, v in TUNINGS.items() if v == tuning_p_o), None)
 		# No tuning provided in input file: set to A (E-LAUTE default)
 		else:
 			tuning = A
