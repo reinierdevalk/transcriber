@@ -29,8 +29,18 @@ import json
 import os
 import re
 import sys
+
+# Ensure that Python can find .py files in utils/py/ regardless of where the script
+# is run from by adding the path holding the code (<lib_path>) to sys.path
+# __file__ 					= <lib_path>/transcriber/py/transcriber.py
+# os.path.dirname(__file__) = <lib_path>/transcriber/py/
+# '../../' 					= up two levels, i.e., <lib_path>
+lib_path = os.path.abspath(os.path.join(os.path.dirname(__file__), '../../utils'))
+if lib_path not in sys.path:
+	sys.path.insert(0, lib_path)
+
 from diplomat import transcribe
-from parser_vals import *
+from py.constants import *
 
 
 parser = argparse.ArgumentParser(prog=		 'diplomat',

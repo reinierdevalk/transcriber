@@ -25,22 +25,22 @@ ElementTree tips
 - getting elements and attributes
   - get('<att>') gets an element's attribute
   - find() and findall()
-    - NB uri_mei must look like
-      uri_mei = '{http://www.music-encoding.org/ns/mei}'
+    - NB URI_MEI must look like
+      URI_MEI = '{http://www.music-encoding.org/ns/mei}'
       NB ns must look like
       ns = {'mei': 'http://www.music-encoding.org/ns/mei', 'xml': 'http://www.w3.org/XML/1998/namespace'}
     - find() finds the first matching direct child (depth = 1)
       - find('mei:scoreDef', ns)
-      - find({f'{uri_mei}scoreDef')
+      - find({f'{URI_MEI}scoreDef')
     - find('.//...') finds the first matching element at any depth (recursive search)  
       - find('.//mei:scoreDef', ns)
-      - find(f'.//{uri_mei}scoreDef')
+      - find(f'.//{URI_MEI}scoreDef')
     - findall() finds all matching direct children (depth = 1)
       - findall('mei:scoreDef', ns)
-      - findall({f'{uri_mei}scoreDef')
+      - findall({f'{URI_MEI}scoreDef')
     - findall('.//...') finds all matching elements at any depth (recursive search)
       - findall('.//mei:scoreDef', ns)
-      - findall(f'.//{uri_mei}scoreDef')
+      - findall(f'.//{URI_MEI}scoreDef')
   - use findall() with XPath: see https://docs.python.org/3/library/xml.etree.elementtree.html#elementtree-xpath
 - namespaces
   - element namespaces: the namespace dict is mostly useful for element searches (find(), findall())
@@ -51,29 +51,23 @@ ElementTree tips
 import argparse
 import copy
 import json
-import os.path
-import random
-import string
-import subprocess
+import os
+import sys
 import xml.etree.ElementTree as ET
-from io import StringIO
-from parser_vals import *
 from subprocess import Popen, PIPE, run
 
-# TODO clean up imports after making utils module
+# Ensure that Python can find .py files in utils/py/ regardless of where the script
+# is run from by adding the path holding the code (<lib_path>) to sys.path
+# __file__ 					= <lib_path>/transcriber/py/diplomat.py
+# os.path.dirname(__file__) = <lib_path>/transcriber/py/
+# '../../' 					= up two levels, i.e., <lib_path>
+lib_path = os.path.abspath(os.path.join(os.path.dirname(__file__), '../../utils'))
+if lib_path not in sys.path:
+	sys.path.insert(0, lib_path)
 
-NOTATIONTYPES = {FLT: 'tab.lute.french',
-				 ILT: 'tab.lute.italian',
-				 SLT: 'tab.lute.spanish',
-				 GLT: 'tab.lute.german'
-				}
-TUNINGS = {F   : [('f', 4), ('c', 4), ('g', 3), ('eb', 3), ('bb', 2), ('f', 2)],
-		   F6Eb: [('f', 4), ('c', 4), ('g', 3), ('eb', 3), ('bb', 2), ('eb', 2)],
-		   G   : [('g', 4), ('d', 4), ('a', 3), ('f', 3), ('c', 3), ('g', 2)], 
-		   G6F : [('g', 4), ('d', 4), ('a', 3), ('f', 3), ('c', 3), ('f', 2)], 
-		   A   : [('a', 4), ('e', 4), ('b', 3), ('g', 3), ('d', 3), ('a', 2)], 
-		   A6G : [('a', 4), ('e', 4), ('b', 3), ('g', 3), ('d', 3), ('g', 2)]
-		  }
+from py.constants import *
+from py.utils import get_tuning, add_unique_id, handle_namespaces, parse_tree
+
 SHIFT_INTERVALS = {F: -2, F6Eb: -2, G: 0, G6F: 0, A: 2, A6G: 2}
 SMUFL_LUTE_DURS = {'f': 'fermataAbove',
 				   1: 'luteDurationDoubleWhole',
@@ -90,38 +84,11 @@ java_path_conv = 'tbp.editor.Editor' # <package>.<package>.<file>
 verbose = False
 add_accid_ges = True
 
-uri_mei = ''
-uri_xml = ''
-xml_id_key = ''
-xml_ids = []
-tuning = ''
-LEN_ID = 8
-
-
-def _get_tuning(tuning: ET.Element): # -> str
-	tuning_p_o = [(c.get('pname'), int(c.get('oct'))) for c in tuning.findall('mei:course', ns)]
-	return next((k for k, v in TUNINGS.items() if v == tuning_p_o), None)
-
-
-def _add_unique_id(prefix: str, arg_xml_ids: list): # -> list
-	"""
-	Generates a unique ID with the given prefix and adds it to given list.
-
-	Args:
-		prefix (str): The prefix for the ID.
-		arg_xml_ids (list): The list of existing IDs.
-
-	Returns:
-		list: The updated list of IDs.
-	"""
-	while True:
-		rand_id = ''.join(random.choices(string.ascii_letters + string.digits, k=(LEN_ID - len(prefix))))
-		xml_id = prefix + rand_id
-		if xml_id not in arg_xml_ids:
-			arg_xml_ids.append(xml_id)
-			break
-
-	return arg_xml_ids
+URI_MEI = None
+URI_XML = None
+XML_ID_KEY = None
+xml_ids = None
+tuning = None # TODO all caps?
 
 
 def _create_element(name: str, parent: ET.Element=None, atts: list=[]): # -> ET.Element:
@@ -143,45 +110,6 @@ def _create_element(name: str, parent: ET.Element=None, atts: list=[]): # -> ET.
 		o.set(a[0], a[1])
 
 	return o
-
-
-def handle_namespaces(xml_contents: str): # -> dict
-	# There is only one namespace, whose key is an empty string -- replace the  
-	# key with something meaningful ('mei'). See
-	# https://stackoverflow.com/questions/42320779/get-the-namespaces-from-xml-with-python-elementtree/42372404#42372404
-	# To avoid an 'ns0' prefix before each tag, register the namespace as an empty string. See
-	# https://stackoverflow.com/questions/8983041/saving-xml-files-using-elementtree
-	#
-	# StringIO treats a string as a file-like object that can be iterated over
-	ns = dict([node for _, node in ET.iterparse(StringIO(xml_contents), events=['start-ns'])])
-#	ns = dict([node for _, node in ET.iterparse(path, events=['start-ns'])])
-	ns['mei'] = ns.pop('')
-	ET.register_namespace('', ns['mei'])
-	ns['xml'] = 'http://www.w3.org/XML/1998/namespace'
-
-	return ns
-
-
-def parse_tree(xml_contents: str): # -> Tuple
-	"""
-	Basic structure of <mei>:
-	
-	<mei> 
-	  <meiHead/>
-	  <music>
-	    ...
-	    <score>
-	      <scoreDef/>
-	      <section/>
-	    </score>
-	  </music>
-	</mei>   
-	"""
-	tree = ET.ElementTree(ET.fromstring(xml_contents))
-#	tree = ET.parse(path)
-	root = tree.getroot()
-
-	return (tree, root)
 
 
 def handle_scoreDef(scoreDef: ET.Element, ns: dict, args: argparse.Namespace): # -> None
@@ -216,7 +144,7 @@ def handle_scoreDef(scoreDef: ET.Element, ns: dict, args: argparse.Namespace): #
 	if args.tuning == INPUT:
 		# Tuning provided in input file: set to provided tuning
 		if tab_tuning != None:
-			tuning = _get_tuning(tab_tuning)
+			tuning = get_tuning(tab_tuning, ns)
 #			tuning_p_o = [(c.get('pname'), int(c.get('oct'))) for c in tab_tuning.findall('mei:course', ns)]
 #			tuning = next((k for k, v in TUNINGS.items() if v == tuning_p_o), None)
 		# No tuning provided in input file: set to A (E-LAUTE default)
@@ -256,11 +184,11 @@ def handle_scoreDef(scoreDef: ET.Element, ns: dict, args: argparse.Namespace): #
 		# <tuning> is only used in first staffDef, not in those for any subsequent <section>s 
 		if is_first_scoreDef:
 			tab_tuning.clear()
-			tab_tuning.set(xml_id_key, _add_unique_id('t', xml_ids)[-1])
+			tab_tuning.set(XML_ID_KEY, add_unique_id('t', xml_ids)[-1])
 			for i, (pitch, octv) in enumerate(TUNINGS[tuning]):
-				course = ET.SubElement(tab_tuning, uri_mei + 'course',
-								   	   **{f'{xml_id_key}': _add_unique_id('c', xml_ids)[-1]},
-								   	   n=str(i+1),
+				course = ET.SubElement(tab_tuning, f'{URI_MEI}course',
+								   	   **{f'{XML_ID_KEY}': add_unique_id('c', xml_ids)[-1]},
+								   	   n=str(i + 1),
 								       pname=pitch[0],
 								       oct=str(octv),
 								       accid='' if len(pitch) == 1 else ('f' if pitch[1] == 'b' else 's')
@@ -270,16 +198,16 @@ def handle_scoreDef(scoreDef: ET.Element, ns: dict, args: argparse.Namespace): #
 		staffGrp.remove(tab_staffDef)
 
 	# 2. Notehead <staffGrp>: create and set as first element in <staffGrp>
-	nh_staffGrp = ET.Element(uri_mei + 'staffGrp', 
-							 **{f'{xml_id_key}': _add_unique_id('sg', xml_ids)[-1]})
+	nh_staffGrp = ET.Element(f'{URI_MEI}staffGrp', 
+							 **{f'{XML_ID_KEY}': add_unique_id('sg', xml_ids)[-1]})
 	if args.staff == DOUBLE:
 		nh_staffGrp.set('symbol', 'bracket')
 		nh_staffGrp.set('bar.thru', 'true')
 	staffGrp.insert(0, nh_staffGrp)
 	# Add <staffDef>(s)
 	for i in [1] if args.staff == SINGLE else [1, 2]:
-		nh_staffDef = ET.SubElement(nh_staffGrp, uri_mei + 'staffDef',
-									**{f'{xml_id_key}': _add_unique_id('sd', xml_ids)[-1]},
+		nh_staffDef = ET.SubElement(nh_staffGrp, f'{URI_MEI}staffDef',
+									**{f'{XML_ID_KEY}': add_unique_id('sd', xml_ids)[-1]},
 									n=str(i),
 									lines='5'
 								   )
@@ -289,17 +217,17 @@ def handle_scoreDef(scoreDef: ET.Element, ns: dict, args: argparse.Namespace): #
 		# <clef> is only used in first staffDef, not in those for any subsequent <section>s
 		if is_first_scoreDef:
 			if args.staff == SINGLE:
-				clef = _create_element(uri_mei + 'clef', 
+				clef = _create_element(f'{URI_MEI}clef', 
 									   parent=nh_staffDef, 
-									   atts=[(xml_id_key, _add_unique_id('c', xml_ids)[-1]),
+									   atts=[(XML_ID_KEY, add_unique_id('c', xml_ids)[-1]),
 									   		 ('shape', 'G'), 
 											 ('line', '2'),
 											 ('dis', '8'), 
 											 ('dis.place', 'below')]
 								  	  )
 			else:
-				clef = ET.SubElement(nh_staffDef, uri_mei + 'clef', 
-									 **{f'{xml_id_key}': _add_unique_id('c', xml_ids)[-1]},
+				clef = ET.SubElement(nh_staffDef, f'{URI_MEI}clef', 
+									 **{f'{XML_ID_KEY}': add_unique_id('c', xml_ids)[-1]},
 									 shape='G' if i==1 else 'F',
 									 line='2' if i==1 else '4'
 									)
@@ -308,19 +236,19 @@ def handle_scoreDef(scoreDef: ET.Element, ns: dict, args: argparse.Namespace): #
 		# NB Theoretically, the <section> could be in a different key -- but currently a single key 
 		#    is assumed for the whole piece
 		if is_first_scoreDef:
-			keySig = ET.SubElement(nh_staffDef, uri_mei + 'keySig',
-								   **{f'{xml_id_key}': _add_unique_id('ks', xml_ids)[-1]},
+			keySig = ET.SubElement(nh_staffDef, f'{URI_MEI}keySig',
+								   **{f'{XML_ID_KEY}': add_unique_id('ks', xml_ids)[-1]},
 								   sig=_get_MEI_keysig(args.key),
 								   mode='minor' if args.mode == MINOR else 'major'
 								  )
 		# Add <meterSig> or <mensur>
 		if tab_meterSig is not None:
 			nh_meterSig = copy.deepcopy(tab_meterSig)
-			nh_meterSig.set(xml_id_key, _add_unique_id('ms', xml_ids)[-1])
+			nh_meterSig.set(XML_ID_KEY, add_unique_id('ms', xml_ids)[-1])
 			nh_staffDef.append(nh_meterSig)
 		elif tab_mensur is not None:
 			nh_mensur = copy.deepcopy(tab_mensur)
-			nh_mensur.set(xml_id_key, _add_unique_id('m', xml_ids)[-1])
+			nh_mensur.set(XML_ID_KEY, add_unique_id('m', xml_ids)[-1])
 			nh_staffDef.append(nh_mensur)
 
 
@@ -380,9 +308,9 @@ def handle_section(section: ET.Element, ns: dict, args: argparse.Namespace): # -
 		# Key sig accidentals as MIDI pitch classes (e.g. 10, 3)
 		key_sig_accid_mpc = [mpcGrid[i] for i in range(len(altGrid)) if altGrid[i] == key_sig_accid_type]
 
-	for measure in section.iter(uri_mei + 'measure'):
+	for measure in section.iter(f'{URI_MEI}measure'):
 		# 0. Collect any non-regular elements in <measure> and remove them from it
-		regular_elements = [uri_mei + t for t in ['measure', 'staff', 'layer', 'beam', 'tabGrp', 'tabDurSym', 'note', 'rest']]
+		regular_elements = [URI_MEI + t for t in ['measure', 'staff', 'layer', 'beam', 'tabGrp', 'tabDurSym', 'note', 'rest']]
 		non_regular_elements = [elem for elem in measure.iter() if elem.tag not in regular_elements]
 		# Collect
 		elems_removed_from_measure = []
@@ -410,51 +338,51 @@ def handle_section(section: ET.Element, ns: dict, args: argparse.Namespace): # -
 
 		# b. Notehead <staff>s 
 		# Add <staff>s to <measure>
-		nh_staff_1 = ET.Element(uri_mei + 'staff', 
-								**{f'{xml_id_key}': _add_unique_id('s', xml_ids)[-1]},
+		nh_staff_1 = ET.Element(f'{URI_MEI}staff', 
+								**{f'{XML_ID_KEY}': add_unique_id('s', xml_ids)[-1]},
 								n='1')
-		nh_staff_2 = ET.Element(uri_mei + 'staff', 
-								**{f'{xml_id_key}': _add_unique_id('s', xml_ids)[-1]},
+		nh_staff_2 = ET.Element(f'{URI_MEI}staff', 
+								**{f'{XML_ID_KEY}': add_unique_id('s', xml_ids)[-1]},
 								n='2')
 		measure.insert(0, nh_staff_1)
 		if args.staff == DOUBLE:
 			measure.insert(1, nh_staff_2)
 
 		# Add <layer>s to <staff>s
-		nh_layer_1 = ET.SubElement(nh_staff_1, uri_mei + 'layer', 
-								   **{f'{xml_id_key}': _add_unique_id('l', xml_ids)[-1]},
+		nh_layer_1 = ET.SubElement(nh_staff_1, f'{URI_MEI}layer', 
+								   **{f'{XML_ID_KEY}': add_unique_id('l', xml_ids)[-1]},
 								   n='1')
-		nh_layer_2 = ET.SubElement(nh_staff_2, uri_mei + 'layer', 
-								   **{f'{xml_id_key}': _add_unique_id('l', xml_ids)[-1]},
+		nh_layer_2 = ET.SubElement(nh_staff_2, f'{URI_MEI}layer', 
+								   **{f'{XML_ID_KEY}': add_unique_id('l', xml_ids)[-1]},
 								   n='1')
 
 		# Add <rest>s, and <chord>s and/or<space>s to <layer>s; collect <dir>s
 		dirs = []
 		accidsInEffect = [[], [], [], [], []] # double flats, flats, naturals, sharps, double sharps
-		for tabGrp in tab_layer.iter(uri_mei + 'tabGrp'):
+		for tabGrp in tab_layer.iter(f'{URI_MEI}tabGrp'):
 			dur = tabGrp.get('dur')
 			dots = tabGrp.get('dots')
 			flag = tabGrp.find('mei:tabDurSym', ns)
 			rest = tabGrp.find('mei:rest', ns)
 			space = tabGrp.find('mei:space', ns)
-			xml_id_tabGrp = tabGrp.get(xml_id_key)
+			xml_id_tabGrp = tabGrp.get(XML_ID_KEY)
 
 			# Add <rest>s. Rests can be implicit (a <tabGrp> w/ only a <tabDurSym>) or
 			# explicit (a <tabGrp> w/ a <rest> (and possibly a <tabDurSym>)). Both are
 			# transcribed as a <rest> in the CMN
 			if (flag != None and (len(tabGrp) == 1) or rest != None): # or space != None):
-				xml_id_rest_1 = _add_unique_id('r', xml_ids)[-1]
-				xml_id_rest_2 = _add_unique_id('r', xml_ids)[-1]
+				xml_id_rest_1 = add_unique_id('r', xml_ids)[-1]
+				xml_id_rest_2 = add_unique_id('r', xml_ids)[-1]
 
 				# 1. Add <rest>s to <layer>s
-				rest_1 = _create_element(uri_mei + 'rest', 
+				rest_1 = _create_element(f'{URI_MEI}rest', 
 										 parent=nh_layer_1, 
-										 atts=[(xml_id_key, xml_id_rest_1),
+										 atts=[(XML_ID_KEY, xml_id_rest_1),
 										 	   ('dur', dur)]
 										)
-				rest_2 = _create_element(uri_mei + 'rest', 
+				rest_2 = _create_element(f'{URI_MEI}rest', 
 										 parent=nh_layer_2, 
-										 atts=[(xml_id_key, xml_id_rest_2),
+										 atts=[(XML_ID_KEY, xml_id_rest_2),
 										 	   ('dur', dur)]
 										)
 
@@ -466,22 +394,22 @@ def handle_section(section: ET.Element, ns: dict, args: argparse.Namespace): # -
 				tabGrps_by_ID[xml_id_tabGrp] = (tabGrp, rests)
 				# Map tab <rest>
 				if rest != None:
-					tab_notes_by_ID[rest.get(xml_id_key)] = (rest, rests) 
+					tab_notes_by_ID[rest.get(XML_ID_KEY)] = (rest, rests) 
 
 			# Add <chord>s and/or <space>s	
 			else:
 				# 0. Create <chord>s and add <note>s to them
 				# NB A <chord> cannot be added directly to the parent <layer> upon creation 
 				#    because it may remain empty, and in that case must be replaced by a <space>
-				xml_id_chord_1 = _add_unique_id('c', xml_ids)[-1]
-				xml_id_chord_2 = _add_unique_id('c', xml_ids)[-1]
-				chord_1 = _create_element(uri_mei + 'chord', 
-										  atts=[(xml_id_key, xml_id_chord_1),
+				xml_id_chord_1 = add_unique_id('c', xml_ids)[-1]
+				xml_id_chord_2 = add_unique_id('c', xml_ids)[-1]
+				chord_1 = _create_element(f'{URI_MEI}chord', 
+										  atts=[(XML_ID_KEY, xml_id_chord_1),
 										   		('dur', dur), 
 										   		('stem.visible', 'false')]
 										 )
-				chord_2 = _create_element(uri_mei + 'chord', 
-										  atts=[(xml_id_key, xml_id_chord_2),
+				chord_2 = _create_element(f'{URI_MEI}chord', 
+										  atts=[(XML_ID_KEY, xml_id_chord_2),
 										   		('dur', dur), 
 										   		('stem.visible', 'false')]
 										 )
@@ -518,22 +446,22 @@ def handle_section(section: ET.Element, ns: dict, args: argparse.Namespace): # -
 							if accid_ges != '':
 								accid_part = [('accid.ges', accid_ges)]
 
-						xml_id_note = _add_unique_id('n', xml_ids)[-1]
-						nh_note = _create_element(uri_mei + 'note', 
+						xml_id_note = add_unique_id('n', xml_ids)[-1]
+						nh_note = _create_element(f'{URI_MEI}note', 
 												  parent=chord_1 if args.staff == SINGLE else\
 												         (chord_1 if midi_pitch >= 60 else chord_2), 
-												  atts=[(xml_id_key, xml_id_note),
+												  atts=[(XML_ID_KEY, xml_id_note),
 												  		('pname', pname),
 												        ('oct', str(_get_octave(midi_pitch))),
 												   		('head.fill', 'solid')] + (accid_part)
 											 	 )
 						# Map tab <note>
-						tab_notes_by_ID[element.get(xml_id_key)] = (element, nh_note)
+						tab_notes_by_ID[element.get(XML_ID_KEY)] = (element, nh_note)
 
 				# 1. Add <chord>s and/or <space>s to <layer>s
-				xml_id_space = _add_unique_id('s', xml_ids)[-1]
-				nh_space = _create_element(uri_mei + 'space', 
-										   atts=[(xml_id_key, xml_id_space),
+				xml_id_space = add_unique_id('s', xml_ids)[-1]
+				nh_space = _create_element(f'{URI_MEI}space', 
+										   atts=[(XML_ID_KEY, xml_id_space),
 												 ('dur', dur)]
 										  )
 				nh_layer_1.append(chord_1 if len(chord_1) > 0 else nh_space)
@@ -557,38 +485,38 @@ def handle_section(section: ET.Element, ns: dict, args: argparse.Namespace): # -
 		curr_non_regular_elements = []
 		for c in elems_removed_from_measure:
 			# Fermata: needs <dir> (CMN) and <fermata> (= c; tab)
-			if c.tag == f'{uri_mei}fermata':
+			if c.tag == f'{URI_MEI}fermata':
 				# Make <dir> for CMN and add 
 				xml_id_tabGrp = c.get('startid')[1:] # start after '#'
-				xml_id_upper_chord = tabGrps_by_ID[xml_id_tabGrp][1][0].get(xml_id_key)
+				xml_id_upper_chord = tabGrps_by_ID[xml_id_tabGrp][1][0].get(XML_ID_KEY)
 				dirs.append(_make_dir(xml_id_upper_chord, 'f', None, ns))
 
 				# Add to list	
 				if args.tablature == YES:
 					curr_non_regular_elements.append(c)
 			# Annotation: needs <annot> (CMN) and <annot> (= c; tab) 
-			elif c.tag == f'{uri_mei}annot':
+			elif c.tag == f'{URI_MEI}annot':
 				# Make <annot> for CMN
 				xml_id_tab_note = c.get('plist')[1:] # start after '#'
-				xml_id_note = tab_notes_by_ID[xml_id_tab_note][1].get(xml_id_key)
+				xml_id_note = tab_notes_by_ID[xml_id_tab_note][1].get(XML_ID_KEY)
 				annot = copy.deepcopy(c)
 				annot.set('plist', '#' + xml_id_note)
-				annot.set(xml_id_key, _add_unique_id('a', xml_ids)[-1])
+				annot.set(XML_ID_KEY, add_unique_id('a', xml_ids)[-1])
 
 				# Add to list
 				curr_non_regular_elements.append(annot)
 				if args.tablature == YES:
 					curr_non_regular_elements.append(c)
 			# Fingering: needs <fing> (= c; tab)
-			elif c.tag == uri_mei + 'fing':
+			elif c.tag == f'{URI_MEI}fing':
 				# Add to list
 				if args.tablature == YES:
 					curr_non_regular_elements.append(c)
 
 		# 3. Add non-regular <measure> elements to completed <measure> in fixed sequence
-		fermatas = [e for e in curr_non_regular_elements if e.tag == f'{uri_mei}fermata']
-		annots = [e for e in curr_non_regular_elements if e.tag == f'{uri_mei}annot']
-		fings = [e for e in curr_non_regular_elements if e.tag == f'{uri_mei}fing']
+		fermatas = [e for e in curr_non_regular_elements if e.tag == f'{URI_MEI}fermata']
+		annots = [e for e in curr_non_regular_elements if e.tag == f'{URI_MEI}annot']
+		fings = [e for e in curr_non_regular_elements if e.tag == f'{URI_MEI}fing']
 		for e in dirs + fermatas + annots + fings:
 			measure.append(e)
 
@@ -632,32 +560,32 @@ def _call_java(cmd: list, use_Popen: bool=False): # -> dict:
 
 
 def _make_dir(xml_id: str, dur: int, dots: int, ns: dict): # -> 'ET.Element'
-	d = ET.Element(uri_mei + 'dir', 
-				   **{f'{xml_id_key}': _add_unique_id('d', xml_ids)[-1]},
+	d = ET.Element(f'{URI_MEI}dir', 
+				   **{f'{XML_ID_KEY}': add_unique_id('d', xml_ids)[-1]},
 				   place='above', 
 				   startid='#' + xml_id
 				  )
 	
 	# Non-fermata case
 	if dur != 'f':
-		_create_element(uri_mei + 'symbol', 
+		_create_element(f'{URI_MEI}symbol', 
 						parent=d, 
-						atts=[(xml_id_key, _add_unique_id('s', xml_ids)[-1]),
+						atts=[(XML_ID_KEY, add_unique_id('s', xml_ids)[-1]),
 							  ('glyph.auth', 'smufl'), 
 							  ('glyph.name', SMUFL_LUTE_DURS[int(dur)])]
 				   	   )
 		if dots != None:
-			_create_element(uri_mei + 'symbol', 
+			_create_element(f'{URI_MEI}symbol', 
 							parent=d, 
-							atts=[(xml_id_key, _add_unique_id('s', xml_ids)[-1]),
+							atts=[(XML_ID_KEY, add_unique_id('s', xml_ids)[-1]),
 								  ('glyph.auth', 'smufl'), 
 							 	  ('glyph.name', SMUFL_LUTE_DURS['.'])]
 						   )
 	# Fermata case 
 	else:
-		_create_element(uri_mei + 'symbol', 
+		_create_element(f'{URI_MEI}symbol', 
 						parent=d, 
-						atts=[(xml_id_key, _add_unique_id('s', xml_ids)[-1]),
+						atts=[(XML_ID_KEY, add_unique_id('s', xml_ids)[-1]),
 							  ('glyph.auth', 'smufl'), 
 						 	  ('glyph.name', SMUFL_LUTE_DURS['f'])]
 				   	   )
@@ -665,14 +593,14 @@ def _make_dir(xml_id: str, dur: int, dots: int, ns: dict): # -> 'ET.Element'
 	return d
 
 
-def _get_midi_pitch(course: int, fret: int, tuning: str): # -> int
+def _get_midi_pitch(course: int, fret: int, arg_tuning: str): # -> int
 	# Determine the MIDI pitches for the open courses
-	abzug = 0 if not '-' in tuning else 2
+	abzug = 0 if not '-' in arg_tuning else 2
 	open_courses = [67, 62, 57, 53, 48, (43 - abzug)]
-	if tuning[0] != G:
-		shift_interv = SHIFT_INTERVALS[tuning[0]]
-		open_courses = list(map(lambda x: x+shift_interv, open_courses))
-	return open_courses[course-1] + fret
+	if arg_tuning[0] != G:
+		shift_interv = SHIFT_INTERVALS[arg_tuning[0]]
+		open_courses = list(map(lambda x: x + shift_interv, open_courses))
+	return open_courses[course - 1] + fret
 
 
 def _get_octave(midi_pitch: int): # -> int:
@@ -702,19 +630,18 @@ def transcribe(infile: str, arg_paths: dict, args: argparse.Namespace): # -> Non
 		with open(os.path.join(inpath, infile), 'r', encoding='utf-8') as file:
 			mei_str = file.read()
 
-
 	# TODOs
 	# - in handle_scoreDef(), instead of using tuning and not_type, reassign args.tuning and args.type (or do it here,
 	#   before handle_scoreDef() is called) (?)
 
 	# Handle namespaces
 	ns = handle_namespaces(mei_str)
-	global uri_mei
-	uri_mei = f'{{{ns['mei']}}}'
-	global uri_xml
-	uri_xml = f'{{{ns['xml']}}}'
-	global xml_id_key
-	xml_id_key = f'{uri_xml}id'
+	global URI_MEI
+	URI_MEI = f'{{{ns['mei']}}}'
+	global URI_XML
+	URI_XML = f'{{{ns['xml']}}}'
+	global XML_ID_KEY
+	XML_ID_KEY = f'{URI_XML}id'
 
 	# Get the tree, root (<mei>), and main MEI elements (<meiHead>, <score>)
 	tree, root = parse_tree(mei_str)
@@ -724,7 +651,7 @@ def transcribe(infile: str, arg_paths: dict, args: argparse.Namespace): # -> Non
 
 	# Collect all xml:ids
 	global xml_ids
-	xml_ids = [elem.attrib[xml_id_key] for elem in root.iter() if xml_id_key in elem.attrib]
+	xml_ids = [elem.attrib[XML_ID_KEY] for elem in root.iter() if XML_ID_KEY in elem.attrib]
 
 	# Handle <scoreDef>s
 	scoreDefs = score.findall('.//mei:scoreDef', ns)
