@@ -97,6 +97,7 @@ parser.add_argument('classpath',
 
 args = parser.parse_args()
 
+
 if __name__ == "__main__":
 #	scriptpath = os.getcwd() # full path to script
 

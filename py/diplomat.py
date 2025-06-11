@@ -66,7 +66,7 @@ if lib_path not in sys.path:
 	sys.path.insert(0, lib_path)
 
 from py.constants import *
-from py.utils import get_tuning, add_unique_id, handle_namespaces, parse_tree
+from py.utils import get_tuning, add_unique_id, handle_namespaces, parse_tree, get_main_MEI_elements, collect_xml_ids
 
 SHIFT_INTERVALS = {F: -2, F6Eb: -2, G: 0, G6F: 0, A: 2, A6G: 2}
 SMUFL_LUTE_DURS = {'f': 'fermataAbove',
@@ -78,17 +78,48 @@ SMUFL_LUTE_DURS = {'f': 'fermataAbove',
 				   32: 'luteDuration16th',
 				   '.': 'augmentationDot'
 				  }
-
+# TODO these always all caps?
 java_path = 'tools.music.PitchKeyTools' # <package>.<package>.<file>
 java_path_conv = 'tbp.editor.Editor' # <package>.<package>.<file>
 verbose = False
 add_accid_ges = True
-
 URI_MEI = None
 URI_XML = None
 XML_ID_KEY = None
 xml_ids = None
-tuning = None # TODO all caps?
+tuning = None
+
+
+def _call_java(cmd: list, use_Popen: bool=False): # -> dict:
+	"""
+	NB For debugging: set, where this function is called, use_Popen=True.
+    - output is what the stdout (System.out.println()) printouts from Java return;
+      it is passed to json.loads() and must be formatted as json
+    - errors is what the stderr (System.err.println()) debugging printouts from
+      Java return; it is printed when use_Popen=True and doesn't have to be formatted
+	"""
+
+	# Replace empty strings
+	for i in range(len(cmd)):
+		if cmd[i] == '':
+			cmd[i] = '__EMPTY__'
+
+	# For debugging
+	if use_Popen:
+		process = Popen(cmd, stdout=PIPE, stderr=PIPE, shell=False)
+		output, errors = process.communicate()
+		outp = output.decode('utf-8') # str
+		errors = errors.decode('utf-8') # str
+		print("errors: " + errors)
+		print("output: " + outp)
+	# For normal use
+	else:
+		process = run(cmd, capture_output=True, shell=False)
+		outp = process.stdout.decode('utf-8') # str
+#		outp = process.stdout # bytes
+#		print(outp)
+
+	return json.loads(outp)
 
 
 def _create_element(name: str, parent: ET.Element=None, atts: list=[]): # -> ET.Element:
@@ -145,8 +176,6 @@ def handle_scoreDef(scoreDef: ET.Element, ns: dict, args: argparse.Namespace): #
 		# Tuning provided in input file: set to provided tuning
 		if tab_tuning != None:
 			tuning = get_tuning(tab_tuning, ns)
-#			tuning_p_o = [(c.get('pname'), int(c.get('oct'))) for c in tab_tuning.findall('mei:course', ns)]
-#			tuning = next((k for k, v in TUNINGS.items() if v == tuning_p_o), None)
 		# No tuning provided in input file: set to A (E-LAUTE default)
 		else:
 			tuning = A
@@ -257,7 +286,6 @@ def _get_MEI_keysig(key: str): # -> str:
 		return str(0)
 	else:
 		return key + 's' if int(key) > 0 else str(abs(int(key))) + 'f'
-#		return str(key) + 's' if key > 0 else str(abs(key)) + 'f'
 
 
 def handle_section(section: ET.Element, ns: dict, args: argparse.Namespace): # -> None
@@ -531,34 +559,6 @@ def handle_section(section: ET.Element, ns: dict, args: argparse.Namespace): # -
 							print(eee.tag, eee.attrib)
 
 
-# NB For debugging: set, where this function is called, use_Popen=True.
-#    - output is what the stdout (System.out.println()) printouts from Java return;
-#      it is passed to json.loads() and must be formatted as json
-#    - errors is what the stderr (System.err.println()) debugging printouts from
-#      Java return; it is printed when use_Popen=True and doesn't have to be formatted
-def _call_java(cmd: list, use_Popen: bool=False): # -> dict:
-	# Replace empty strings
-	for i in range(len(cmd)):
-		if cmd[i] == '':
-			cmd[i] = '__EMPTY__'
-
-	# For debugging
-	if use_Popen:
-		process = Popen(cmd, stdout=PIPE, stderr=PIPE, shell=False)
-		output, errors = process.communicate()
-		outp = output.decode('utf-8') # str
-		errors = errors.decode('utf-8') # str
-		print("errors: " + errors)
-		print("output: " + outp)
-	# For normal use
-	else:
-		process = run(cmd, capture_output=True, shell=False)
-		outp = process.stdout # bytes
-#		print(outp)
-
-	return json.loads(outp)
-
-
 def _make_dir(xml_id: str, dur: int, dots: int, ns: dict): # -> 'ET.Element'
 	d = ET.Element(f'{URI_MEI}dir', 
 				   **{f'{XML_ID_KEY}': add_unique_id('d', xml_ids)[-1]},
@@ -645,13 +645,15 @@ def transcribe(infile: str, arg_paths: dict, args: argparse.Namespace): # -> Non
 
 	# Get the tree, root (<mei>), and main MEI elements (<meiHead>, <score>)
 	tree, root = parse_tree(mei_str)
-	meiHead = root.find('mei:meiHead', ns)
-	music = root.find('mei:music', ns)
+	meiHead, music = get_main_MEI_elements(root, ns)
+#	meiHead = root.find('mei:meiHead', ns)
+#	music = root.find('mei:music', ns)
 	score = music.find('.//mei:score', ns)
 
 	# Collect all xml:ids
 	global xml_ids
-	xml_ids = [elem.attrib[XML_ID_KEY] for elem in root.iter() if XML_ID_KEY in elem.attrib]
+	xml_ids = collect_xml_ids(root, XML_ID_KEY)
+#	xml_ids = [elem.attrib[XML_ID_KEY] for elem in root.iter() if XML_ID_KEY in elem.attrib]
 
 	# Handle <scoreDef>s
 	scoreDefs = score.findall('.//mei:scoreDef', ns)
