@@ -78,19 +78,21 @@ SMUFL_LUTE_DURS = {'f': 'fermataAbove',
 				   32: 'luteDuration16th',
 				   '.': 'augmentationDot'
 				  }
-# TODO these always all caps?
-java_path = 'tools.music.PitchKeyTools' # <package>.<package>.<file>
-java_path_conv = 'tbp.editor.Editor' # <package>.<package>.<file>
-verbose = False
-add_accid_ges = True
+JAVA_PATH = 'tools.music.PitchKeyTools' # <package>.<package>.<file>
+JAVA_PATH_CONV = 'tbp.editor.Editor' # <package>.<package>.<file>
+VERBOSE = False
+ADD_ACCID_GES = True
 URI_MEI = None
 URI_XML = None
 XML_ID_KEY = None
-xml_ids = None
-tuning = None
+XML_IDS = None 
+TUNING = None
+KEY = None 
+TYPE = None 
 
 
-def _call_java(cmd: list, use_Popen: bool=False): # -> dict:
+# Helper functions -->
+def call_java(cmd: list, use_Popen: bool=False): # -> dict:
 	"""
 	NB For debugging: set, where this function is called, use_Popen=True.
     - output is what the stdout (System.out.println()) printouts from Java return;
@@ -122,7 +124,7 @@ def _call_java(cmd: list, use_Popen: bool=False): # -> dict:
 	return json.loads(outp)
 
 
-def _create_element(name: str, parent: ET.Element=None, atts: list=[]): # -> ET.Element:
+def make_element(name: str, parent: ET.Element=None, atts: list=[]): # -> ET.Element:
 	"""
 	Convenience method for creating an ET.Element or ET.SubElement object with a one-liner. 
 	Useful because, in the conventional way, any attributes that contain a dot in their 
@@ -143,6 +145,7 @@ def _create_element(name: str, parent: ET.Element=None, atts: list=[]): # -> ET.
 	return o
 
 
+# Main functions -->
 def handle_scoreDef(scoreDef: ET.Element, ns: dict, args: argparse.Namespace): # -> None
 	"""
 	Basic structure of <scoreDef>:
@@ -171,33 +174,26 @@ def handle_scoreDef(scoreDef: ET.Element, ns: dict, args: argparse.Namespace): #
 	tab_not_type = tab_staffDef.get('notationtype')
 	is_first_scoreDef = tab_tuning != None
 
-	global tuning
+	# Set global vars corresponding to args that can have INPUT as value
+	global TUNING # dlaute customisation: args.tuning == A
 	if args.tuning == INPUT:
-		# Tuning provided in input file: set to provided tuning
-		if tab_tuning != None:
-			tuning = get_tuning(tab_tuning, ns)
-		# No tuning provided in input file: set to A (E-LAUTE default)
-		else:
-			tuning = A
+		# If tab_tuning == None, no tuning is provided in the input file
+		TUNING = get_tuning(tab_tuning, ns) if tab_tuning != None else G
 	else:
-		tuning = args.tuning
+		TUNING = args.tuning
 
-	not_type = ''
+	global TYPE # dlaute customisation: args.type not used because args.tablature == n
 	if args.type == INPUT:
-		# Type provided in input file: set to provided type
-		if tab_not_type != None:
-			not_type = tab_not_type
-		# No type provided in input file: set to FLT (E-LAUTE default)
-		else:
-			not_type = NOTATIONTYPES[FLT]
+		# If tab_not_type == None, no type is provided in the input file 
+		TYPE = tab_not_type if tab_not_type != None else NOTATIONTYPES[FLT]
 	else:
-		not_type = NOTATIONTYPES[args.type]
+		TYPE = NOTATIONTYPES[args.type]
 
+	global KEY # dlaute customisation: args.key == 0
 	if args.key == INPUT:
-		if args.file.endswith(MEI): # TODO fix
-			args.key = "0"
-		else:
-			args.key = str(_call_java(['java', '-cp', args.classpath, java_path, args.dev, 'key', tuning, args.file]))
+		KEY = str(call_java(['java', '-cp', args.classpath, JAVA_PATH, args.dev, 'key', TUNING, args.file]))
+	else:
+		KEY = args.key
 
 	# Adapt
 	if args.tablature == YES:
@@ -205,18 +201,18 @@ def handle_scoreDef(scoreDef: ET.Element, ns: dict, args: argparse.Namespace): #
 		lines = tab_staffDef.get('lines')
 
 		# Reset <staffDef> attributes
-		tab_staffDef.set('n', str(int(n) + (1 if args.staff == SINGLE else 2)))
-		if not_type != NOTATIONTYPES[GLT]:
-			tab_staffDef.set('lines', '5' if lines == '5' and not_type == NOTATIONTYPES[FLT] else '6')
-			tab_staffDef.set('notationtype', not_type)
+		tab_staffDef.set('n', str(int(n) + (1 if args.score == SINGLE else 2)))
+		if TYPE != NOTATIONTYPES[GLT]:
+			tab_staffDef.set('lines', '5' if lines == '5' and TYPE == NOTATIONTYPES[FLT] else '6')
+			tab_staffDef.set('notationtype', TYPE)
 		# Reset <tuning>
 		# <tuning> is only used in first staffDef, not in those for any subsequent <section>s 
 		if is_first_scoreDef:
 			tab_tuning.clear()
-			tab_tuning.set(XML_ID_KEY, add_unique_id('t', xml_ids)[-1])
-			for i, (pitch, octv) in enumerate(TUNINGS[tuning]):
+			tab_tuning.set(XML_ID_KEY, add_unique_id('t', XML_IDS)[-1])
+			for i, (pitch, octv) in enumerate(TUNINGS[TUNING]):
 				course = ET.SubElement(tab_tuning, f'{URI_MEI}course',
-								   	   **{f'{XML_ID_KEY}': add_unique_id('c', xml_ids)[-1]},
+								   	   **{f'{XML_ID_KEY}': add_unique_id('c', XML_IDS)[-1]},
 								   	   n=str(i + 1),
 								       pname=pitch[0],
 								       oct=str(octv),
@@ -228,15 +224,15 @@ def handle_scoreDef(scoreDef: ET.Element, ns: dict, args: argparse.Namespace): #
 
 	# 2. Notehead <staffGrp>: create and set as first element in <staffGrp>
 	nh_staffGrp = ET.Element(f'{URI_MEI}staffGrp', 
-							 **{f'{XML_ID_KEY}': add_unique_id('sg', xml_ids)[-1]})
-	if args.staff == DOUBLE:
+							 **{f'{XML_ID_KEY}': add_unique_id('sg', XML_IDS)[-1]})
+	if args.score == DOUBLE:
 		nh_staffGrp.set('symbol', 'bracket')
 		nh_staffGrp.set('bar.thru', 'true')
 	staffGrp.insert(0, nh_staffGrp)
 	# Add <staffDef>(s)
-	for i in [1] if args.staff == SINGLE else [1, 2]:
+	for i in [1] if args.score == SINGLE else [1, 2]:
 		nh_staffDef = ET.SubElement(nh_staffGrp, f'{URI_MEI}staffDef',
-									**{f'{XML_ID_KEY}': add_unique_id('sd', xml_ids)[-1]},
+									**{f'{XML_ID_KEY}': add_unique_id('sd', XML_IDS)[-1]},
 									n=str(i),
 									lines='5'
 								   )
@@ -245,18 +241,18 @@ def handle_scoreDef(scoreDef: ET.Element, ns: dict, args: argparse.Namespace): #
 		# Add <clef>
 		# <clef> is only used in first staffDef, not in those for any subsequent <section>s
 		if is_first_scoreDef:
-			if args.staff == SINGLE:
-				clef = _create_element(f'{URI_MEI}clef', 
-									   parent=nh_staffDef, 
-									   atts=[(XML_ID_KEY, add_unique_id('c', xml_ids)[-1]),
-									   		 ('shape', 'G'), 
-											 ('line', '2'),
-											 ('dis', '8'), 
-											 ('dis.place', 'below')]
-								  	  )
+			if args.score == SINGLE:
+				clef = make_element(f'{URI_MEI}clef', 
+									parent=nh_staffDef, 
+									atts=[(XML_ID_KEY, add_unique_id('c', XML_IDS)[-1]),
+									      ('shape', 'G'), 
+										  ('line', '2'),
+										  ('dis', '8'), 
+										  ('dis.place', 'below')]
+								  	)
 			else:
 				clef = ET.SubElement(nh_staffDef, f'{URI_MEI}clef', 
-									 **{f'{XML_ID_KEY}': add_unique_id('c', xml_ids)[-1]},
+									 **{f'{XML_ID_KEY}': add_unique_id('c', XML_IDS)[-1]},
 									 shape='G' if i==1 else 'F',
 									 line='2' if i==1 else '4'
 									)
@@ -266,29 +262,29 @@ def handle_scoreDef(scoreDef: ET.Element, ns: dict, args: argparse.Namespace): #
 		#    is assumed for the whole piece
 		if is_first_scoreDef:
 			keySig = ET.SubElement(nh_staffDef, f'{URI_MEI}keySig',
-								   **{f'{XML_ID_KEY}': add_unique_id('ks', xml_ids)[-1]},
-								   sig=_get_MEI_keysig(args.key),
+								   **{f'{XML_ID_KEY}': add_unique_id('ks', XML_IDS)[-1]},
+								   sig=_get_MEI_keysig(KEY),
 								   mode='minor' if args.mode == MINOR else 'major'
 								  )
 		# Add <meterSig> or <mensur>
 		if tab_meterSig is not None:
 			nh_meterSig = copy.deepcopy(tab_meterSig)
-			nh_meterSig.set(XML_ID_KEY, add_unique_id('ms', xml_ids)[-1])
+			nh_meterSig.set(XML_ID_KEY, add_unique_id('ms', XML_IDS)[-1])
 			nh_staffDef.append(nh_meterSig)
 		elif tab_mensur is not None:
 			nh_mensur = copy.deepcopy(tab_mensur)
-			nh_mensur.set(XML_ID_KEY, add_unique_id('m', xml_ids)[-1])
+			nh_mensur.set(XML_ID_KEY, add_unique_id('m', XML_IDS)[-1])
 			nh_staffDef.append(nh_mensur)
 
 
 def _get_MEI_keysig(key: str): # -> str:
-	if key == INPUT:
-		return str(0)
-	else:
-		return key + 's' if int(key) > 0 else str(abs(int(key))) + 'f'
+#	if key == INPUT:
+#		return str(0)
+#	else:
+	return key + 's' if int(key) > 0 else str(abs(int(key))) + 'f'
 
 
-def handle_section(section: ET.Element, ns: dict, args: argparse.Namespace): # -> None
+def handle_section(section: ET.Element, ns: dict, args: argparse.Namespace): # -> tuple
 	"""
 	Basic structure of <section>:
 
@@ -320,21 +316,22 @@ def handle_section(section: ET.Element, ns: dict, args: argparse.Namespace): # -
 	the notehead notation, there is also a middle staff. 
 	"""
 
-	grids_dict = _call_java(['java', '-cp', args.classpath, java_path, args.dev, 'grids', args.key, args.mode])
-	mpcGrid = grids_dict['mpcGrid'] # list
-	mpcGridStr = str(mpcGrid)
-	altGrid = grids_dict['altGrid'] # list
-	altGridStr = str(altGrid)
-	pcGrid = grids_dict['pcGrid'] # list
-	pcGridStr = str(pcGrid)
+#	grids_dict = call_java(['java', '-cp', args.classpath, JAVA_PATH, args.dev, 'grids', KEY, args.mode])
+#	mpcGrid = grids_dict['mpcGrid'] # list YES
+##	mpcGridStr = str(mpcGrid)
+#	altGrid = grids_dict['altGrid'] # list ONLY UNDER
+##	altGridStr = str(altGrid)
+#	pcGrid = grids_dict['pcGrid'] # list ONLY UNDER
+##	pcGridStr = str(pcGrid)
 
 	tab_notes_by_ID = {}
 	tabGrps_by_ID = {}
+	notes_unspelled_by_ID = []
 
-	if add_accid_ges:
-		key_sig_accid_type = 'f' if int(args.key) <= 0 else 's'
-		# Key sig accidentals as MIDI pitch classes (e.g. 10, 3)
-		key_sig_accid_mpc = [mpcGrid[i] for i in range(len(altGrid)) if altGrid[i] == key_sig_accid_type]
+#	if ADD_ACCID_GES:
+#		key_sig_accid_type = 'f' if int(KEY) <= 0 else 's'
+#		# Key sig accidentals as MIDI pitch classes (e.g. 10, 3)
+#		key_sig_accid_mpc = [mpcGrid[i] for i in range(len(altGrid)) if altGrid[i] == key_sig_accid_type]
 
 	for measure in section.iter(f'{URI_MEI}measure'):
 		# 0. Collect any non-regular elements in <measure> and remove them from it
@@ -358,7 +355,7 @@ def handle_section(section: ET.Element, ns: dict, args: argparse.Namespace): # -
 		# a. Tablature <staff>
 		# Adapt
 		tab_staff = measure.find('mei:staff', ns)
-		tab_staff.set('n', str(int(tab_staff.attrib['n']) + (1 if args.staff == SINGLE else 2)))
+		tab_staff.set('n', str(int(tab_staff.attrib['n']) + (1 if args.score == SINGLE else 2)))
 		tab_layer = tab_staff.find('mei:layer', ns)
 		# Remove
 		if args.tablature == NO:
@@ -367,26 +364,26 @@ def handle_section(section: ET.Element, ns: dict, args: argparse.Namespace): # -
 		# b. Notehead <staff>s 
 		# Add <staff>s to <measure>
 		nh_staff_1 = ET.Element(f'{URI_MEI}staff', 
-								**{f'{XML_ID_KEY}': add_unique_id('s', xml_ids)[-1]},
+								**{f'{XML_ID_KEY}': add_unique_id('s', XML_IDS)[-1]},
 								n='1')
 		nh_staff_2 = ET.Element(f'{URI_MEI}staff', 
-								**{f'{XML_ID_KEY}': add_unique_id('s', xml_ids)[-1]},
+								**{f'{XML_ID_KEY}': add_unique_id('s', XML_IDS)[-1]},
 								n='2')
 		measure.insert(0, nh_staff_1)
-		if args.staff == DOUBLE:
+		if args.score == DOUBLE:
 			measure.insert(1, nh_staff_2)
 
 		# Add <layer>s to <staff>s
 		nh_layer_1 = ET.SubElement(nh_staff_1, f'{URI_MEI}layer', 
-								   **{f'{XML_ID_KEY}': add_unique_id('l', xml_ids)[-1]},
+								   **{f'{XML_ID_KEY}': add_unique_id('l', XML_IDS)[-1]},
 								   n='1')
 		nh_layer_2 = ET.SubElement(nh_staff_2, f'{URI_MEI}layer', 
-								   **{f'{XML_ID_KEY}': add_unique_id('l', xml_ids)[-1]},
+								   **{f'{XML_ID_KEY}': add_unique_id('l', XML_IDS)[-1]},
 								   n='1')
 
 		# Add <rest>s, and <chord>s and/or<space>s to <layer>s; collect <dir>s
 		dirs = []
-		accidsInEffect = [[], [], [], [], []] # double flats, flats, naturals, sharps, double sharps
+#		accidsInEffect = [[], [], [], [], []] # double flats, flats, naturals, sharps, double sharps
 		for tabGrp in tab_layer.iter(f'{URI_MEI}tabGrp'):
 			dur = tabGrp.get('dur')
 			dots = tabGrp.get('dots')
@@ -399,26 +396,26 @@ def handle_section(section: ET.Element, ns: dict, args: argparse.Namespace): # -
 			# explicit (a <tabGrp> w/ a <rest> (and possibly a <tabDurSym>)). Both are
 			# transcribed as a <rest> in the CMN
 			if (flag != None and (len(tabGrp) == 1) or rest != None): # or space != None):
-				xml_id_rest_1 = add_unique_id('r', xml_ids)[-1]
-				xml_id_rest_2 = add_unique_id('r', xml_ids)[-1]
+				xml_id_rest_1 = add_unique_id('r', XML_IDS)[-1]
+				xml_id_rest_2 = add_unique_id('r', XML_IDS)[-1]
 
 				# 1. Add <rest>s to <layer>s
-				rest_1 = _create_element(f'{URI_MEI}rest', 
-										 parent=nh_layer_1, 
-										 atts=[(XML_ID_KEY, xml_id_rest_1),
-										 	   ('dur', dur)]
-										)
-				rest_2 = _create_element(f'{URI_MEI}rest', 
-										 parent=nh_layer_2, 
-										 atts=[(XML_ID_KEY, xml_id_rest_2),
-										 	   ('dur', dur)]
-										)
+				rest_1 = make_element(f'{URI_MEI}rest', 
+									  parent=nh_layer_1, 
+									  atts=[(XML_ID_KEY, xml_id_rest_1),
+										 	('dur', dur)]
+									 )
+				rest_2 = make_element(f'{URI_MEI}rest', 
+									  parent=nh_layer_2, 
+									  atts=[(XML_ID_KEY, xml_id_rest_2),
+										 	('dur', dur)]
+									 )
 
 				# 2. Add <dir>
 				dirs.append(_make_dir(xml_id_rest_1, dur, dots, ns))
 
 				# 3. Map tabGrp
-				rests = (rest_1, None) if args.staff == SINGLE else (rest_1, rest_2)
+				rests = (rest_1, None) if args.score == SINGLE else (rest_1, rest_2)
 				tabGrps_by_ID[xml_id_tabGrp] = (tabGrp, rests)
 				# Map tab <rest>
 				if rest != None:
@@ -429,71 +426,74 @@ def handle_section(section: ET.Element, ns: dict, args: argparse.Namespace): # -
 				# 0. Create <chord>s and add <note>s to them
 				# NB A <chord> cannot be added directly to the parent <layer> upon creation 
 				#    because it may remain empty, and in that case must be replaced by a <space>
-				xml_id_chord_1 = add_unique_id('c', xml_ids)[-1]
-				xml_id_chord_2 = add_unique_id('c', xml_ids)[-1]
-				chord_1 = _create_element(f'{URI_MEI}chord', 
-										  atts=[(XML_ID_KEY, xml_id_chord_1),
-										   		('dur', dur), 
-										   		('stem.visible', 'false')]
-										 )
-				chord_2 = _create_element(f'{URI_MEI}chord', 
-										  atts=[(XML_ID_KEY, xml_id_chord_2),
-										   		('dur', dur), 
-										   		('stem.visible', 'false')]
-										 )
+				xml_id_chord_1 = add_unique_id('c', XML_IDS)[-1]
+				xml_id_chord_2 = add_unique_id('c', XML_IDS)[-1]
+				chord_1 = make_element(f'{URI_MEI}chord', 
+									   atts=[(XML_ID_KEY, xml_id_chord_1),
+										     ('dur', dur), 
+										   	 ('stem.visible', 'false')]
+									  )
+				chord_2 = make_element(f'{URI_MEI}chord', 
+									   atts=[(XML_ID_KEY, xml_id_chord_2),
+										   	 ('dur', dur), 
+										   	 ('stem.visible', 'false')]
+									  )
 				for element in tabGrp:
 					if element != flag and element != rest and element != space:
 						try:
 							midi_pitch = _get_midi_pitch(int(element.get('tab.course')), 
 													 	 int(element.get('tab.fret')), 
-													 	 tuning)
+													 	 TUNING)
 						except TypeError:
 							raise Exception(f"Element {element.tag} with attributes\
 											{element.attrib} is either missing tab.course or tab.fret")
-
-						midi_pitch_class = midi_pitch % 12
-						# a. The note is in key	and there are no accidentals in effect
-						if midi_pitch_class in mpcGrid and not any(accidsInEffect):
-							pname = pcGrid[mpcGrid.index(midi_pitch_class)]
-							accid = ''									
-							if add_accid_ges:
-								accid_ges = key_sig_accid_type if midi_pitch_class in key_sig_accid_mpc else ''
-						# b. The note is in key	and there are accidentals in effect / the note is not in key
-						else:
-							cmd = ['java', '-cp', args.classpath, java_path, args.dev, 'pitch', str(midi_pitch), 
-									args.key, mpcGridStr, altGridStr, pcGridStr, str(accidsInEffect)]
-							spell_dict = _call_java(cmd)
-							pname = spell_dict['pname'] # str
-							accid = spell_dict['accid'] # str
-							if add_accid_ges:
-								accid_ges = spell_dict['accid.ges'] # str
-							accidsInEffect = spell_dict['accidsInEffect'] # list
-						accid_part = [('accid', accid)] if accid != '' else []
-						if add_accid_ges:
-							# accid.ges overrules accid
-							if accid_ges != '':
-								accid_part = [('accid.ges', accid_ges)]
-
-						xml_id_note = add_unique_id('n', xml_ids)[-1]
-						nh_note = _create_element(f'{URI_MEI}note', 
-												  parent=chord_1 if args.staff == SINGLE else\
-												         (chord_1 if midi_pitch >= 60 else chord_2), 
-												  atts=[(XML_ID_KEY, xml_id_note),
-												  		('pname', pname),
-												        ('oct', str(_get_octave(midi_pitch))),
-												   		('head.fill', 'solid')] + (accid_part)
-											 	 )
+#						midi_pitch_class = midi_pitch % 12
+#						# a. The note is in key	and there are no accidentals in effect
+#						if midi_pitch_class in mpcGrid and not any(accidsInEffect):
+#							pname = pcGrid[mpcGrid.index(midi_pitch_class)]
+#							accid = ''									
+#							if ADD_ACCID_GES:
+#								accid_ges = key_sig_accid_type if midi_pitch_class in key_sig_accid_mpc else ''
+#						# b. The note is in key	and there are accidentals in effect / the note is not in key
+#						else:
+#							cmd = ['java', '-cp', args.classpath, JAVA_PATH, args.dev, 'pitch', str(midi_pitch), 
+#								   KEY, mpcGridStr, altGridStr, pcGridStr, str(accidsInEffect)]
+#							spell_dict = call_java(cmd)
+#
+#							pname = spell_dict['pname'] # str
+#							accid = spell_dict['accid'] # str
+#							if ADD_ACCID_GES:
+#								accid_ges = spell_dict['accid.ges'] # str
+#							accidsInEffect = spell_dict['accidsInEffect'] # list
+#						accid_part = [('accid', accid)] if accid != '' else []
+#						if ADD_ACCID_GES:
+#							# accid.ges overrules accid
+#							if accid_ges != '':
+#								if args.accidentals == YES:
+#									accid_part = [('accid', accid_ges)]
+#								else:
+#									accid_part = [('accid.ges', accid_ges)]
+						xml_id_note = add_unique_id('n', XML_IDS)[-1]
+						nh_note = make_element(f'{URI_MEI}note', 
+											   parent=chord_1 if args.score == SINGLE else\
+												      (chord_1 if midi_pitch >= 60 else chord_2), 
+											   atts=[(XML_ID_KEY, xml_id_note),
+												  	 ('pname', None),
+												     ('oct', str(_get_octave(midi_pitch))),
+												     ('head.fill', 'solid')]
+											  )
 						# Map tab <note>
 						tab_notes_by_ID[element.get(XML_ID_KEY)] = (element, nh_note)
+						notes_unspelled_by_ID.append([xml_id_note, measure.get('n'), midi_pitch])
 
 				# 1. Add <chord>s and/or <space>s to <layer>s
-				xml_id_space = add_unique_id('s', xml_ids)[-1]
-				nh_space = _create_element(f'{URI_MEI}space', 
-										   atts=[(XML_ID_KEY, xml_id_space),
-												 ('dur', dur)]
-										  )
+				xml_id_space = add_unique_id('s', XML_IDS)[-1]
+				nh_space = make_element(f'{URI_MEI}space', 
+										atts=[(XML_ID_KEY, xml_id_space),
+											  ('dur', dur)]
+									   )
 				nh_layer_1.append(chord_1 if len(chord_1) > 0 else nh_space)
-				if args.staff == DOUBLE:
+				if args.score == DOUBLE:
 					nh_layer_2.append(chord_2 if len(chord_2) > 0 else nh_space)
 				xml_id_reference = xml_id_chord_1 if len(chord_1) > 0 else xml_id_space
 
@@ -502,7 +502,7 @@ def handle_section(section: ET.Element, ns: dict, args: argparse.Namespace): # -
 					dirs.append(_make_dir(xml_id_reference, dur, dots, ns))
 
 				# 3. Map tabGrp
-				chords = (chord_1, None) if args.staff == SINGLE\
+				chords = (chord_1, None) if args.score == SINGLE\
 										 else (chord_1 if len(chord_1) > 0 else nh_space,\
 										 	   chord_2 if len(chord_2) > 0 else nh_space)
 				tabGrps_by_ID[xml_id_tabGrp] = (tabGrp, chords)
@@ -529,7 +529,7 @@ def handle_section(section: ET.Element, ns: dict, args: argparse.Namespace): # -
 				xml_id_note = tab_notes_by_ID[xml_id_tab_note][1].get(XML_ID_KEY)
 				annot = copy.deepcopy(c)
 				annot.set('plist', '#' + xml_id_note)
-				annot.set(XML_ID_KEY, add_unique_id('a', xml_ids)[-1])
+				annot.set(XML_ID_KEY, add_unique_id('a', XML_IDS)[-1])
 
 				# Add to list
 				curr_non_regular_elements.append(annot)
@@ -548,7 +548,7 @@ def handle_section(section: ET.Element, ns: dict, args: argparse.Namespace): # -
 		for e in dirs + fermatas + annots + fings:
 			measure.append(e)
 
-		if verbose:
+		if VERBOSE:
 			for elem in measure:
 				print(elem.tag, elem.attrib)
 				for e in elem:
@@ -558,37 +558,91 @@ def handle_section(section: ET.Element, ns: dict, args: argparse.Namespace): # -
 						for eee in ee:
 							print(eee.tag, eee.attrib)
 
+	return (section, notes_unspelled_by_ID)
+
+#	# Spell pitch
+#	grids_dict = call_java(['java', '-cp', args.classpath, JAVA_PATH, args.dev, 'grids', KEY, args.mode])
+#	mpcGrid = grids_dict['mpcGrid'] # list
+#	altGrid = grids_dict['altGrid'] # list
+#	pcGrid = grids_dict['pcGrid'] # list
+#
+#	if ADD_ACCID_GES:
+#		key_sig_accid_type = 'f' if int(KEY) <= 0 else 's'
+#		# Key sig accidentals as MIDI pitch classes (e.g. 10, 3)
+#		key_sig_accid_mpc = [mpcGrid[i] for i in range(len(altGrid)) if altGrid[i] == key_sig_accid_type]
+#
+#	cmd = ['java', '-cp', args.classpath, JAVA_PATH, args.dev, 'pitch', json.dumps(unspelled_by_ID), 
+#		   KEY, json.dumps(mpcGrid), json.dumps(altGrid), json.dumps(pcGrid)]
+#	spell_dict = call_java(cmd)
+#
+#	# Dictionary for fast lookup of xml:ids
+#	xml_id_map = {e.get(XML_ID_KEY): e for e in section.iter() if XML_ID_KEY in e.attrib}
+#	for key, val in spell_dict.items():
+#		midi_pitch = int(val['pitch'])
+#		midi_pitch_class = midi_pitch % 12
+#
+#		# a. The note is in key	and there are no accidentals in effect
+#		if midi_pitch_class in mpcGrid and not any(accidsInEffect):
+#			pname = pcGrid[mpcGrid.index(midi_pitch_class)]
+#			accid = ''									
+#			if ADD_ACCID_GES:
+#				accid_ges = key_sig_accid_type if midi_pitch_class in key_sig_accid_mpc else ''
+#		# b. The note is in key	and there are accidentals in effect / the note is not in key
+#		else:
+#			pname = val['pname'] # str
+#			accid = val['accid'] # str
+#			if ADD_ACCID_GES:
+#				accid_ges = val['accid.ges'] # str
+#			accidsInEffect = val['accidsInEffect'] # list
+#		
+#		# Adapt <note>
+#		note = xml_id_map.get(key)
+#		note.set('pname', pname)
+#		if ADD_ACCID_GES:
+#			# accid.ges overrules accid
+#			if accid_ges != '':
+#				if args.accidentals == YES:
+#					note.set('accid', accid_ges)
+#				else:
+#					note.set('accid.ges', accid_ges)
+#			else: 
+#				if accid != '':
+#					note.set('accid', accid)
+#		else:
+#			if accid != '':
+#				note.set('accid', accid)
+
 
 def _make_dir(xml_id: str, dur: int, dots: int, ns: dict): # -> 'ET.Element'
 	d = ET.Element(f'{URI_MEI}dir', 
-				   **{f'{XML_ID_KEY}': add_unique_id('d', xml_ids)[-1]},
+				   **{f'{XML_ID_KEY}': add_unique_id('d', XML_IDS)[-1]},
 				   place='above', 
 				   startid='#' + xml_id
 				  )
 	
 	# Non-fermata case
 	if dur != 'f':
-		_create_element(f'{URI_MEI}symbol', 
-						parent=d, 
-						atts=[(XML_ID_KEY, add_unique_id('s', xml_ids)[-1]),
-							  ('glyph.auth', 'smufl'), 
-							  ('glyph.name', SMUFL_LUTE_DURS[int(dur)])]
-				   	   )
+		make_element(f'{URI_MEI}symbol', 
+					 parent=d, 
+					 atts=[(XML_ID_KEY, add_unique_id('s', XML_IDS)[-1]),
+						   ('glyph.auth', 'smufl'), 
+						   ('glyph.name', SMUFL_LUTE_DURS[int(dur)])]
+				   	)
 		if dots != None:
-			_create_element(f'{URI_MEI}symbol', 
-							parent=d, 
-							atts=[(XML_ID_KEY, add_unique_id('s', xml_ids)[-1]),
-								  ('glyph.auth', 'smufl'), 
-							 	  ('glyph.name', SMUFL_LUTE_DURS['.'])]
-						   )
+			make_element(f'{URI_MEI}symbol', 
+					     parent=d, 
+						 atts=[(XML_ID_KEY, add_unique_id('s', XML_IDS)[-1]),
+							   ('glyph.auth', 'smufl'), 
+							   ('glyph.name', SMUFL_LUTE_DURS['.'])]
+						)
 	# Fermata case 
 	else:
-		_create_element(f'{URI_MEI}symbol', 
-						parent=d, 
-						atts=[(XML_ID_KEY, add_unique_id('s', xml_ids)[-1]),
-							  ('glyph.auth', 'smufl'), 
-						 	  ('glyph.name', SMUFL_LUTE_DURS['f'])]
-				   	   )
+		make_element(f'{URI_MEI}symbol', 
+					 parent=d, 
+					 atts=[(XML_ID_KEY, add_unique_id('s', XML_IDS)[-1]),
+						   ('glyph.auth', 'smufl'), 
+						   ('glyph.name', SMUFL_LUTE_DURS['f'])]
+				   	)
 
 	return d
 
@@ -608,33 +662,82 @@ def _get_octave(midi_pitch: int): # -> int:
 	return int((c / 12) - 1)
 
 
-def transcribe(infile: str, arg_paths: dict, args: argparse.Namespace): # -> None
-	inpath = arg_paths['inpath']
-	outpath = arg_paths['outpath']
+def spell_pitch(section: ET.Element, notes_unspelled_by_ID: list, args: argparse.Namespace): # -> None
+	# Dictionary for fast lookup of xml:ids
+	xml_id_map = {e.get(XML_ID_KEY): e for e in section.iter() if XML_ID_KEY in e.attrib}
 
-	filename, ext = os.path.splitext(os.path.basename(infile)) # input file name, extension
-	outfile = filename + '-dipl' + MEI # output file
-	args.file = infile # NB already the case when using -f
+	grids_dict = call_java(['java', '-cp', args.classpath, JAVA_PATH, args.dev, 'grids', KEY, args.mode])
+	mpcGrid = grids_dict['mpcGrid'] # list
+	altGrid = grids_dict['altGrid'] # list
+	pcGrid = grids_dict['pcGrid'] # list
 
+	if ADD_ACCID_GES:
+		key_sig_accid_type = 'f' if int(KEY) <= 0 else 's'
+		# Key sig accidentals as MIDI pitch classes (e.g. 10, 3)
+		key_sig_accid_mpc = [mpcGrid[i] for i in range(len(altGrid)) if altGrid[i] == key_sig_accid_type]
+
+	cmd = ['java', '-cp', args.classpath, JAVA_PATH, args.dev, 'pitch', json.dumps(notes_unspelled_by_ID), 
+		   KEY, json.dumps(mpcGrid), json.dumps(altGrid), json.dumps(pcGrid)]
+	spell_dict = call_java(cmd)
+	accidsInEffect = [[], [], [], [], []] # double flats, flats, naturals, sharps, double sharps
+	for key, val in spell_dict.items():
+		midi_pitch = int(val['pitch'])
+		midi_pitch_class = midi_pitch % 12
+
+		# a. The note is in key	and there are no accidentals in effect
+		if midi_pitch_class in mpcGrid and not any(accidsInEffect):
+			pname = pcGrid[mpcGrid.index(midi_pitch_class)]
+			accid = ''									
+			if ADD_ACCID_GES:
+				accid_ges = key_sig_accid_type if midi_pitch_class in key_sig_accid_mpc else ''
+		# b. The note is in key	and there are accidentals in effect / the note is not in key
+		else:
+			pname = val['pname'] # str
+			accid = val['accid'] # str
+			if ADD_ACCID_GES:
+				accid_ges = val['accid.ges'] # str
+			accidsInEffect = val['accidsInEffect'] # list
+		
+		# Adapt <note>
+		note = xml_id_map.get(key)
+		note.set('pname', pname)
+		if ADD_ACCID_GES:
+			# accid.ges overrules accid
+			if accid_ges != '':
+				if args.accidentals == YES:
+					note.set('accid', accid_ges)
+				else:
+					note.set('accid.ges', accid_ges)
+			else: 
+				if accid != '':
+					note.set('accid', accid)
+		else:
+			if accid != '':
+				note.set('accid', accid)
+
+
+# Principal code -->
+def transcribe(in_file: str, in_path: str, out_path: str, args: argparse.Namespace): # -> None
+	# 0. File processing
+	filename, ext = os.path.splitext(os.path.basename(in_file))
+	out_file = filename + '-dipl' + MEI
+	args.file = in_file # NB already the case when using -f
 	# Get file contents as MEI string
 	if ext != MEI:
 		# As in abtab converter: provide three opts, always with their default vals, and no user opts
 		opts_java = '-u -t -y -h'
 		default_vals_java = 'i y i n/a' 
 		user_opts_vals_java = ''
-		cmd = ['java', '-cp', args.classpath, java_path_conv, args.dev, opts_java, default_vals_java,\
-			   user_opts_vals_java, 'false', infile, filename + MEI]
-		res = _call_java(cmd)
+		cmd = ['java', '-cp', args.classpath, JAVA_PATH_CONV, args.dev, opts_java, default_vals_java,\
+			   user_opts_vals_java, 'false', in_file, filename + MEI]
+		res = call_java(cmd)
 		mei_str = res['content']
 	else:
-		with open(os.path.join(inpath, infile), 'r', encoding='utf-8') as file:
+		with open(os.path.join(in_path, in_file), 'r', encoding='utf-8') as file:
 			mei_str = file.read()
 
-	# TODOs
-	# - in handle_scoreDef(), instead of using tuning and not_type, reassign args.tuning and args.type (or do it here,
-	#   before handle_scoreDef() is called) (?)
-
-	# Handle namespaces
+	# 1. Preliminaries 
+	# a. Handle namespaces
 	ns = handle_namespaces(mei_str)
 	global URI_MEI
 	URI_MEI = f'{{{ns['mei']}}}'
@@ -642,34 +745,30 @@ def transcribe(infile: str, arg_paths: dict, args: argparse.Namespace): # -> Non
 	URI_XML = f'{{{ns['xml']}}}'
 	global XML_ID_KEY
 	XML_ID_KEY = f'{URI_XML}id'
-
-	# Get the tree, root (<mei>), and main MEI elements (<meiHead>, <score>)
+	# b. Get the tree, root (<mei>), and main MEI elements (<meiHead>, <score>)
 	tree, root = parse_tree(mei_str)
 	meiHead, music = get_main_MEI_elements(root, ns)
-#	meiHead = root.find('mei:meiHead', ns)
-#	music = root.find('mei:music', ns)
 	score = music.find('.//mei:score', ns)
+	# c. Collect all xml:ids
+	global XML_IDS
+	XML_IDS = collect_xml_ids(root, XML_ID_KEY)
 
-	# Collect all xml:ids
-	global xml_ids
-	xml_ids = collect_xml_ids(root, XML_ID_KEY)
-#	xml_ids = [elem.attrib[XML_ID_KEY] for elem in root.iter() if XML_ID_KEY in elem.attrib]
-
-	# Handle <scoreDef>s
+	# 2. Handle <scoreDef>s
 	scoreDefs = score.findall('.//mei:scoreDef', ns)
 	for scoreDef in scoreDefs:
 		handle_scoreDef(scoreDef, ns, args)
 
-	# Handle <section>s
+	# 3. Handle <section>s
 	sections = score.findall('mei:section', ns)
 	for section in sections:
-		handle_section(section, ns, args)
+		section, notes_unspelled_by_ID = handle_section(section, ns, args)
+		spell_pitch(section, notes_unspelled_by_ID, args)
 
-	# Fix indentation
+	# 4. Fix indentation
 	ET.indent(tree, space='\t', level=0)
 
-	# Add processing instructions (<?xml> declaration and <?xml-model> processing 
-	# instructions), which are not included in root, and write to file 
+	# 5. Add processing instructions (<?xml> declaration and <?xml-model>  
+	# processing instructions), which are not included in root 
 	lines = mei_str.split('\n')
 	declaration = lines[0] + '\n'
 	model_pi = ''
@@ -678,5 +777,7 @@ def transcribe(infile: str, arg_paths: dict, args: argparse.Namespace): # -> Non
 			model_pi += line + '\n'
 	xml_str = ET.tostring(root, encoding='unicode')
 	xml_str = f'{declaration}{model_pi}{xml_str}'
-	with open(os.path.join(outpath, outfile), 'w', encoding='utf-8') as file:
+	
+	# 6. Write to file
+	with open(os.path.join(out_path, out_file), 'w', encoding='utf-8') as file:
 		file.write(xml_str)

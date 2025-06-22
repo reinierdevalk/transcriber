@@ -43,63 +43,72 @@ from diplomat import transcribe
 from py.constants import *
 
 
-parser = argparse.ArgumentParser(prog=		 'diplomat',
-								 description='Creates a diplomatic transcription in notehead notation.',
-								 epilog=	 'Stores a new MEI file in the output folder (\'out/\').')
-# Optional args
-parser.add_argument('-u', '--tuning', 
-					choices=[F, F6Eb, G, G6F, A, A6G, INPUT], 
-					default=INPUT,
-					metavar='', 
-					help=f'the tuning; options are [{F}, {F6Eb}, {G}, {G6F}, {A}, {A6G}], default is {G}')
-parser.add_argument('-k', '--key', 
-					choices=[str(i) for i in list(range(-5, 6, 1))], 
-					default=INPUT, 
-					metavar='',
-					help='the key signature for the transcription, expressed as its\
-						  number of accidentals (where a negative number indicates flats);\
-						  options are [-5, ..., 5], default is 0')
-parser.add_argument('-m', '--mode', 
-					choices=[MAJOR, MINOR], 
-					default=MAJOR,
-					metavar='', 
-					help='the key signature\'s \'mode\': major (0) or minor (1);\
+# Main functions -->
+def parse_args(): # -> None
+	parser = argparse.ArgumentParser(prog=		 'diplomat',
+									 description='Creates a diplomatic transcription in notehead notation.',
+									 epilog=	 'Stores a new MEI file in the output folder (\'out/\').')
+	# Optional args
+	parser.add_argument('-u', '--tuning', 
+						choices=[F, F6Eb, G, G6F, A, A6G, INPUT], 
+						default=INPUT,
+						metavar='', 
+						help=f'the tuning; options are [{F}, {F6Eb}, {G}, {G6F}, {A}, {A6G}], default is {G}')
+	parser.add_argument('-k', '--key', 
+						choices=[str(i) for i in list(range(-5, 6, 1))], 
+						default=INPUT, 
+						metavar='',
+						help='the key signature for the transcription, expressed as its\
+							  number of accidentals (where a negative number indicates flats);\
+							  options are [-5, ..., 5], default is 0')
+	parser.add_argument('-x', '--accidentals', 
+						choices=[YES, NO], 
+						default=NO, 
+						metavar='',
+						help='whether or not to show all accidentals; options are [y, n], default is n')
+	parser.add_argument('-m', '--mode', 
+						choices=[MAJOR, MINOR], 
+						default=MAJOR,
+						metavar='', 
+						help='the key signature\'s \'mode\': major (0) or minor (1);\
 						  options are [0, 1], default is 0')
-parser.add_argument('-s', '--staff', 
-					choices=[SINGLE, DOUBLE], 
-					default=DOUBLE,
-					metavar='', 
-					help='the staff type: single or double;\
-						  options are [s, d], default is d')
-parser.add_argument('-t', '--tablature', 
-					choices=[YES, NO], 
-					default=YES,
-					metavar='',
-					help='whether or not to retain the tab in the transcription;\
-						  options are [y, n], default is y')
-parser.add_argument('-y', '--type', 
-					choices=[FLT, ILT, SLT, GLT, INPUT], 
-					default=INPUT,
-					metavar='',
-					help='the tablature type;\
-						  options are [FLT, ILT, SLT, GLT], default is FLT')
-parser.add_argument('-f', '--file', 
-					help='the input file')
-# Positional args
-parser.add_argument('dev', 
-					help='true if model development case')
-parser.add_argument('rootpath', 
-					help='the abtab home directory.')
-parser.add_argument('libpath', 
-					help='the directory holding the code.')
-parser.add_argument('classpath', 
-					help='the Java classpath')
+	parser.add_argument('-s', '--score', 
+						choices=[SINGLE, DOUBLE, VOCAL], 
+						default=DOUBLE,
+						metavar='', 
+						help='the score type: single-staff, double-staff, or vocal;\
+							  options are [s, d, v], default is d')
+	parser.add_argument('-t', '--tablature', 
+						choices=[YES, NO], 
+						default=YES,
+						metavar='',
+						help='whether or not to retain the tab in the transcription;\
+							  options are [y, n], default is y')
+	parser.add_argument('-y', '--type', 
+						choices=[FLT, ILT, SLT, GLT, INPUT], 
+						default=INPUT,
+						metavar='',
+						help='the tablature type;\
+							  options are [FLT, ILT, SLT, GLT], default is FLT')
+	parser.add_argument('-f', '--file', 
+						help='the input file')
+	# Positional args
+	parser.add_argument('dev', 
+						help='true if model development case')
+	parser.add_argument('rootpath', 
+						help='the abtab home directory.')
+	parser.add_argument('libpath', 
+						help='the directory holding the code.')
+	parser.add_argument('classpath', 
+						help='the Java classpath')
 
-args = parser.parse_args()
+	return parser.parse_args()
 
 
+# Principal code -->
 if __name__ == "__main__":
 #	scriptpath = os.getcwd() # full path to script
+	args = parse_args()
 
 	# Paths
 	root_path = args.rootpath
@@ -114,18 +123,17 @@ if __name__ == "__main__":
 	out_path = os.path.join(dipl_path, 'out') # full path to output file
 
 	# List files
-	infiles = []
+	in_files = []
 	# Selected file
 	if args.file is not None:
-		infile = os.path.split(args.file)[-1] # input file
-		infiles.append(infile)
+		in_file = os.path.split(args.file)[-1] # input file
+		in_files.append(in_file)
 	# All files in in_path folder
 	else:
 		for ext in ALLOWED_FILE_FORMATS:
 			pattern = os.path.join(in_path, f'*{ext}')
-			infiles.extend(glob.glob(pattern))
-		infiles = [os.path.basename(f) for f in infiles]
+			in_files.extend(glob.glob(pattern))
+		in_files = [os.path.basename(f) for f in in_files]
 
-	paths = {'inpath': in_path, 'outpath': out_path}
-	for infile in infiles:
-		transcribe(infile, paths, args)
+	for in_file in in_files:
+		transcribe(in_file, in_path, out_path, args)
