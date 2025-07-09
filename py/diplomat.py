@@ -52,6 +52,7 @@ import argparse
 import copy
 import json
 import os
+import re
 import sys
 import xml.etree.ElementTree as ET
 from subprocess import Popen, PIPE, run
@@ -66,7 +67,7 @@ if lib_path not in sys.path:
 	sys.path.insert(0, lib_path)
 
 from py.constants import *
-from py.utils import get_tuning, add_unique_id, handle_namespaces, parse_tree, get_main_MEI_elements, collect_xml_ids
+from py.utils import get_tuning, add_unique_id, handle_namespaces, parse_tree, get_main_MEI_elements, collect_xml_ids, print_all_elements, pretty_print
 
 SHIFT_INTERVALS = {F: -2, F6Eb: -2, G: 0, G6F: 0, A: 2, A6G: 2}
 SMUFL_LUTE_DURS = {'f': 'fermataAbove',
@@ -285,7 +286,318 @@ def _get_MEI_keysig(key: str): # -> str:
 	return key + 's' if int(key) > 0 else str(abs(int(key))) + 'f'
 
 
+def make_new_element(elem: ET.Element): # -> ET.Element
+	if elem.tag == f'{URI_MEI}tabGrp':
+		contains_notes = any(child.tag == f'{URI_MEI}note' for child in elem.iter())
+		# If elem contains notes: new_elem is a chord
+		if contains_notes:
+			new_elem = make_element(f'{URI_MEI}chord', 
+									atts=[(XML_ID_KEY, add_unique_id('c', XML_IDS)[-1]),
+										  ('dur', elem.get('dur')),
+										  ('stem.visible', 'false')]
+								   )
+		# If elem contains no notes: new_elem is a rest
+		else:
+			new_elem = make_element(f'{URI_MEI}rest', 
+									atts=[(XML_ID_KEY, add_unique_id('c', XML_IDS)[-1]),
+										  ('dur', elem.get('dur'))]
+								   )
+#	elif elem.tag == f'{URI_MEI}tabDurSym':
+#		# Walk up the tree to find <tabGrp> parent
+#		parent_elem = elem
+#		while parent_elem is not None:
+#			if parent_elem.tag == f'{URI_MEI}tabGrp':
+#				tabGrp = parent_elem
+#				dur = tabGrp.get('dur')
+#				dots = tabGrp.get('dots')
+#				xml_id = tabGrp.get(XML_ID_KEY)
+#				break
+#			parent_elem = parent_map.get(parent_elem)
+#		new_elem = _make_dir(xml_id, dur, dots, ns) # xml_id (=startid) must be replaced with the xml_id of the corresponding chord
+	elif elem.tag == f'{URI_MEI}note':
+		try:
+			midi_pitch = _get_midi_pitch(int(elem.get('tab.course')), 
+									     int(elem.get('tab.fret')), 
+										 TUNING)
+		except TypeError:
+			raise Exception(f'Element {elem.tag} with attributes\
+							{elem.attrib} is missing tab.course or tab.fret')
+		new_elem = make_element(f'{URI_MEI}note',  
+								atts=[(XML_ID_KEY, add_unique_id('n', XML_IDS)[-1]),
+									  ('pname', f'{midi_pitch}'), # dummy value that is overwritten
+#									  ('pname', 'None'),
+									  ('oct', str(_get_octave(midi_pitch))),
+									  ('head.fill', 'solid')]
+							   )
+	elif elem.tag == f'{URI_MEI}rest':
+		new_elem = make_element(f'{URI_MEI}rest',  
+								atts=[(XML_ID_KEY, add_unique_id('r', XML_IDS)[-1]),
+									  'dur', elem.get('dur')]
+							   )
+
+	return new_elem
+
+
+def copy_and_transform_staff(elem: ET.Element): # -> ET.Element
+	elems_to_replace = [f'{URI_MEI}tabGrp', f'{URI_MEI}note', f'{URI_MEI}rest']
+	notes = {} # (key = xml:id of note (tab) : value = note (CMN))
+	chords = {} # (key = xml:id of tabGrp : value = chord)
+
+	new_elem = make_new_element(elem) if elem.tag in elems_to_replace else ET.Element(elem.tag)
+	# If elem is a tabGrp
+	if elem.tag == f'{URI_MEI}tabGrp':
+		chords[elem.get(XML_ID_KEY)] = new_elem #(new_elem, any(child.tag == f'{URI_MEI}tabDurSym' for child in elem.iter()))
+	# If elem is a note
+	if elem.tag == f'{URI_MEI}note':
+		notes[elem.get(XML_ID_KEY)] = new_elem
+
+	# Copy all attributes of non-altered elements; reset xml:id
+	if elem.tag not in elems_to_replace:
+		elem_name = elem.tag.split('}', 1)[1] # strip URL bit from tag
+		for attr, val in elem.attrib.items():
+			new_elem.set(attr, val if attr != f'{URI_XML}id' else add_unique_id(elem_name[0], XML_IDS)[-1])
+
+	# Recursively transform children
+	for child in elem:
+#		# Do not copy tabDurSym onto new_elem
+#		if child.tag == f'{URI_MEI}tabDurSym': # and elem.tag == f'{URI_MEI}tabGrp':
+#			# If parent is not <tabGrp>: <tabDurSym> is wrapped
+#			# - wrap the corresponding dir the same way
+#			# - remove the wrapper here
+#			continue
+		# Do not copy beam onto new_elem, only its contents
+		if child.tag == f'{URI_MEI}beam':
+			for grandchild in child:
+				new_grandchild, chords_grandchild, notes_grandchild = copy_and_transform_staff(grandchild)
+				if new_grandchild is not None:
+					new_elem.append(new_grandchild)
+				chords.update(chords_grandchild)
+				notes.update(notes_grandchild)
+			continue
+		
+		new_child, chords_child, notes_child = copy_and_transform_staff(child)
+		if new_child is not None:
+			new_elem.append(new_child)
+		chords.update(chords_child)
+		notes.update(notes_child)
+
+	return (new_elem, chords, notes)
+
+
+def clean_measure_number(mnum: str): # -> str
+	match = re.match(r'^(\d+)', mnum)
+	return match.group(1) if match else None
+
+
 def handle_section(section: ET.Element, ns: dict, args: argparse.Namespace): # -> tuple
+	tab_staff_n = '2' if args.score == SINGLE else '3'
+	measure = clean_measure_number(section.find('.//mei:measure', ns).get('n'))
+
+	notes_unspelled_by_ID = []
+	staffs_and_dirs = [] # contains, per measure, old staff, new staff, flag dirs (list), other (list)
+	parent_map = {c: p for p in section.iter() for c in p} # this is a *reverse* (child -> parent) lookup dict!
+	tab_to_CMN_note_ids = {}
+
+	# Iterate recursively over <section> and copy/transform content of all <measure>s, i.e., 
+	# (1) all staffs (NB: a staff is not necessarily a diret child of <measure>)
+	# (2) all direct children of <measure> that are not <staff>, e.g., <dir>, <add>, <supplied>, ...
+	it = section.iter()
+	for elem in it:
+		if elem.tag == f'{URI_MEI}measure':
+			if clean_measure_number(elem.get('n')) != measure:
+				measure = clean_measure_number(elem.get('n'))
+
+			curr_staffs_and_dirs = ()
+			other = []
+			for melem in [child for child in elem]:
+				# 1. Copy/transform <staff>
+				if melem.tag == f'{URI_MEI}staff':
+					melem.set('n', tab_staff_n)
+#					print(pretty_print(elem))
+					new_staff, chords, notes = copy_and_transform_staff(melem)
+					new_staff.set('n', '1')
+					print(pretty_print(new_staff))
+					
+			
+#					print(list(chords.keys()))
+#					print('-------')
+#					for item in list(chords.values()): 
+#						print(item[0].get(XML_ID_KEY), item[1])
+
+#					# Now that chords exists: set correct reference xml:id for <dir>s
+#					dirs = new_staff.findall('.//mei:dir', ns)
+#					print('HIERRRR')
+#					for z in dirs:
+#						print(pretty_print(z))
+#					print(list(chords.keys()))
+					
+#					for d in dirs:
+#						xml_id_tabGrp = d.get('startid').lstrip('#')
+#						xml_id_chord = chords[xml_id_tabGrp].get(XML_ID_KEY)
+#						d.set('startid', f'#{xml_id_chord}')
+
+					# Make <dir>s for rhythm flags
+#					chords_in_staff = new_staff.findall('.//mei:chord', ns)
+					flag_dirs = []
+					to_remove = []
+					for c in new_staff.findall('.//mei:chord', ns):
+						flag_dir = _make_dir(c.get(XML_ID_KEY), c.get('dur'), c.get('dots'), ns)
+						# tabDurSyms can be direct children of chord or placed inside wrapper elements
+						for el in list(c):
+							# tabDurSym is a direct child: add flag_dir directly
+							if el.tag == f'{URI_MEI}tabDurSym':
+#								flag_dir = _make_dir(c.get(XML_ID_KEY), c.get('dur'), c.get('dots'), ns)
+								flag_dirs.append(flag_dir)
+								# Remove el from c
+								to_remove.append(el)
+							# tabDurSym is placed inside wrapper: replace tabDurSym with flag_dir in el; add el
+							elif el.find('.//mei:tabDurSym', ns) is not None:
+								tds = el.find('.//mei:tabDurSym', ns)
+#								flag_dir = _make_dir(c.get(XML_ID_KEY), c.get('dur'), c.get('dots'), ns)
+								# In el, replace tabDurSym with flag dir; add complete el
+								found = False
+								for parent in el.iter():
+									for i, child in enumerate(list(parent)):
+										if child is tds:
+											parent.remove(tds)
+											parent.insert(i, flag_dir)
+											found = True
+											break
+									if found: 
+										break
+								flag_dirs.append(el)
+								to_remove.append(el)
+
+								# measure 2: wrapper (el) contains more than only a tabDurSym (also note)
+								# make deep copy of wrapper and change xml:ids 
+								# --> in deep copy, replace tabDurSym with flag dir; remove remainder (note) from wrapper; add to flag_dirs
+								# --> in original, remove tabDurSym 
+
+						for el in to_remove:
+							c.remove(el)
+						to_remove.clear()
+
+#					for t in tabDurSyms:
+#						# Walk up the tree to find <tabGrp> parent
+#						parent_elem = elem
+#						while parent_elem is not None:
+#							if parent_elem.tag == f'{URI_MEI}tabGrp':
+#								tabGrp = parent_elem
+#								dur = tabGrp.get('dur')
+#								dots = tabGrp.get('dots')
+#								xml_id = tabGrp.get(XML_ID_KEY)
+#								break
+#						parent_elem = parent_map.get(parent_elem)
+
+
+					# Collect <dir>s for rhythm flags
+#					flag_dirs = []
+#					for c in list(chords.values()):
+#						if c[1] == True:
+#							flag_dirs.append(_make_dir(c[0].get(XML_ID_KEY), c[0].get('dur'), c[0].get('dots'), ns))
+##						print(pretty_print(_make_dir(c.get(XML_ID_KEY), c.get('dur'), c.get('dots'), ns)))
+
+					# Add tab staff, CMN staff, and flag dirs to list
+					curr_staffs_and_dirs = (melem, new_staff, flag_dirs)
+#					staffs_and_dirs.append((elem, new_staff, flag_dirs))
+
+					# Add to notes_unspelled_by_ID
+					for n in list(notes.values()):
+						notes_unspelled_by_ID.append([n.get(XML_ID_KEY), measure, n.get('pname')])
+
+#					# For efficiency: skip all descendants of staff
+#					for descendant in elem.iter():
+#						next(it, None)
+
+		# Get other direct children of <measure>
+#		other = [child if child.tag != f'{URI_MEI}staff' for child in ]
+
+				# 2. Copy/transform any other element that is a direct child of <measure>
+				else:
+#				for other_elem in other:
+#				if elem.tag != f'{URI_MEI}section':
+#					if parent_map[elem].tag == f'{URI_MEI}measure':
+					melem.set('label', 'tab')
+					melem_CMN = copy.deepcopy(melem)
+					melem_CMN.set('label', 'CMN')
+					print('TAG', melem.tag)
+					# NB: if elem is a wrapper elem (<add>, <del>, ...), there may be multiples or combinations
+					# of <dir>, <fing>, or <fermata> inside it; therefore, the for-loop is needed
+					if any(e.tag == f'{URI_MEI}dir' for e in melem.iter()):	
+						# <dir> has @staff to determine its position: adapt in elem and elem_CMN
+						dirs = [melem] if melem.tag == f'{URI_MEI}dir' else melem.findall('.//mei:dir', ns) 
+						for d in dirs:
+							d.set('staff', tab_staff_n)
+						dirs_CMN = [melem_CMN] if melem_CMN.tag == f'{URI_MEI}dir' else melem_CMN.findall('.//mei:dir', ns)
+						for d in dirs_CMN:
+							d.set('staff', '1')
+					if any(e.tag == f'{URI_MEI}fing' for e in melem.iter()):
+						# TODO: replace with a flag <dir> when RS with fingering 'hook' are in SMuFL  
+						# <fing> has @startid to determine its position: adapt only in elem_CMN 
+						fings_CMN = [melem_CMN] if melem_CMN.tag == f'{URI_MEI}fing' else melem_CMN.findall('.//mei:fing', ns)
+						for f in fings_CMN:
+							id_note_tab = f.get('startid').lstrip('#')
+							id_note_CMN = notes[id_note_tab].get(XML_ID_KEY)
+							f.set('startid', f'#{id_note_CMN}')
+					if any(e.tag == f'{URI_MEI}fermata' for e in melem.iter()):
+						# <fermata> has @startid to determine its position: adapt only in elem_CMN
+						fermatas_CMN = [melem_CMN] if melem_CMN.tag == f'{URI_MEI}fermata' else melem_CMN.findall('.//mei:fermata', ns)
+						for f in fermatas_CMN:
+							id_tabGrp = f.get('startid').lstrip('#')
+							id_chord = chords[id_tabGrp].get(XML_ID_KEY)
+#							id_chord = chords[id_tabGrp][0].get(XML_ID_KEY)
+							f.set('startid', f'#{id_chord}')
+					# Adapt <xml:id>s
+					for e in melem_CMN.iter():
+						elem_name = e.tag.split('}', 1)[1] # strip URL bit from tag
+						e.set(XML_ID_KEY, add_unique_id(elem_name[0], XML_IDS)[-1])
+					# Add to other
+					other.append(melem_CMN)
+
+			# Add other dirs to flag dirs
+			curr_staffs_and_dirs[-1].extend(other)
+#			curr_staffs_and_dirs = curr_staffs_and_dirs + (other,)
+#			print(len(curr_staffs_and_dirs[-1]))
+			print('HIER')
+			for i, item in enumerate(curr_staffs_and_dirs):
+				if i == 0 or i == 1:
+					print(item.tag)
+				else:
+					for meti in item:
+						print('*********')
+						print(pretty_print(meti))
+
+			staffs_and_dirs.append(curr_staffs_and_dirs)
+
+
+						# dir: always copy, change staff= and place= (for type="hold", to above)  
+
+						# If elem has somewhere something with a reference to a note that is
+						# - not fing: copy/transform it, remove original if tab == NO
+						#   - tenuto sign
+						# - fing: don't copy/transform, remove original if tab == NO 
+						# If not: always just leave it in, change staff 
+						# - fol. 3r
+						#         
+
+	# Insert CMN staffs before tab staffs; insert combined dirs after CMN staffs 
+	for tab_staff, CMN_staff, comb_dirs in staffs_and_dirs:
+		parent = parent_map[tab_staff]
+		index = list(parent).index(tab_staff)
+		# Insert CMN staff
+		parent.insert(index, CMN_staff)
+
+		# Insert flag dirs after CMN staff
+		for i, comb_dir in enumerate(comb_dirs):
+			parent.insert(index + 1 + i, comb_dir) 
+
+
+#	print(pretty_print(section))
+
+	return (section, notes_unspelled_by_ID)
+
+
+def handle_section_OLD(section: ET.Element, ns: dict, args: argparse.Namespace): # -> tuple
 	"""
 	Basic structure of <section>:
 
@@ -704,6 +1016,7 @@ def transcribe(in_file: str, in_path: str, out_path: str, args: argparse.Namespa
 	sections = score.findall('mei:section', ns)
 	for section in sections:
 		section, notes_unspelled_by_ID = handle_section(section, ns, args)
+#		section, notes_unspelled_by_ID = handle_section_OLD(section, ns, args)
 		spell_pitch(section, notes_unspelled_by_ID, args)
 
 	# 4. Fix indentation
