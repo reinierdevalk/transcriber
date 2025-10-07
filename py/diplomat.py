@@ -283,8 +283,15 @@ def _get_MEI_keysig(key: str): # -> str:
 #	if key == INPUT:
 #		return str(0)
 #	else:
-	return key + 's' if int(key) > 0 else str(abs(int(key))) + 'f'
+#	return key + 's' if int(key) > 0 else str(abs(int(key))) + 'f' # returns MEI with syntax error (keySig="0f")
 
+# ADDED BY OLJA
+	if int(key) == 0:
+		return key
+	elif int(key) > 0:
+		return key + 's'
+	else:
+		return str(abs(int(key))) + 'f'
 
 # NEW!
 def clean_measure_number(mnum: str): # -> str
