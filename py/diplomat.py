@@ -285,6 +285,33 @@ def _get_MEI_keysig(key: str): # -> str:
 #	else:
 	return key + 's' if int(key) > 0 else str(abs(int(key))) + 'f'
 
+# ADDED BY OLJA
+def unwrap_markup(measure, markup_elements):
+    """
+    Repeatedly (!) unwraps markup elements inside of the measure.
+    Children are inserted at the same position as the wrapper.
+    """
+    unwrapped = True
+    while unwrapped:
+        unwrapped = False
+
+        # Create a parent list
+        parents = {child: parent for parent in measure.iter() for child in parent}
+
+        for elem in list(measure.iter()):
+            if elem.tag in markup_elements and elem in parents:
+                parent = parents[elem]
+                # find the position in code
+                index = list(parent).index(elem)
+
+                # insert children at that position, in correct order
+                for child in list(elem):
+                    parent.insert(index, child)
+                    index += 1 # for correct order
+
+                # remove the wrapper element itself
+                parent.remove(elem)
+                unwrapped = True
 
 # NEW!
 def clean_measure_number(mnum: str): # -> str
@@ -604,9 +631,12 @@ def handle_section(section: ET.Element, ns: dict, args: argparse.Namespace): # -
 	tabGrps_by_ID = {}
 	notes_unspelled_by_ID = []
 	regular_elements = [f'{URI_MEI}{e}' for e in ['measure', 'staff', 'layer', 'beam', 'tabGrp', 'tabDurSym', 'note', 'rest']]
+	markup_elements = [f'{URI_MEI}{e}' for e in ['damage', 'unclear', 'del', 'add', 'supplied', 'sic']] # markup elements used only in diplomatic transcriptions of E-LAUTE project, ADDED BY OLJA
 	tab_elements = [f'{URI_MEI}{e}' for e in ['tabGrp', 'tabDurSym', 'note', 'rest']]
 
 	for measure in section.iter(f'{URI_MEI}measure'):
+		# -1. Unwrapp all elemenst out of the markup elements, ADDED BY OLJA
+		unwrap_markup(measure, markup_elements)
 		# 0. Collect any non-regular elements in <measure> and remove them from it
 		non_regular_elements = [elem for elem in measure.iter() if elem.tag not in regular_elements]
 		# Collect
