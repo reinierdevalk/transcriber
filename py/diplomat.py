@@ -283,7 +283,11 @@ def _get_MEI_keysig(key: str): # -> str:
 #	if key == INPUT:
 #		return str(0)
 #	else:
-	return key + 's' if int(key) > 0 else str(abs(int(key))) + 'f'
+#	return key + 's' if int(key) > 0 else str(abs(int(key))) + 'f'
+	if int(key) == 0:
+		return key
+	else:
+		return key + 's' if int(key) > 0 else str(abs(int(key))) + 'f'
 
 
 # NEW!
