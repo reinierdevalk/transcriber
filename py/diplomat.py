@@ -290,32 +290,6 @@ def _get_MEI_keysig(key: str): # -> str:
 		return key + 's' if int(key) > 0 else str(abs(int(key))) + 'f'
 
 
-def unwrap_markup_elements(measure, markup_elements):
-	"""
-	Recursively unwraps markup elements inside of the measure.
-	"""
-	unwrapped = True
-	while unwrapped:
-		unwrapped = False
-
-		# Create a parent map
-		parents = {child: parent for parent in measure.iter() for child in parent}
-		# Find markup elements
-		for elem in list(measure.iter()):
-			if elem.tag in markup_elements and elem in parents:
-				parent = parents[elem]
-				index = list(parent).index(elem)
-
-				# Insert child at index in parent
-				for child in list(elem):
-					parent.insert(index, child)
-					index += 1 # for correct order
-
-				# Remove markup element itself
-				parent.remove(elem)
-				unwrapped = True
-
-
 # NEW!
 def clean_measure_number(mnum: str): # -> str
 	match = re.match(r'^(\d+)', mnum)
@@ -640,7 +614,7 @@ def handle_section(section: ET.Element, ns: dict, args: argparse.Namespace): # -
 
 	for measure in section.iter(f'{URI_MEI}measure'):
 		# 0. Unwrap all markup elements
-		unwrap_markup_elements(measure, markup_elements)
+		_unwrap_markup_elements(measure, markup_elements)
 		# 1. Collect any non-regular elements in <measure> and remove them from it
 		non_regular_elements = [elem for elem in measure.iter() if elem.tag not in regular_elements]
 		# Collect
@@ -687,7 +661,7 @@ def handle_section(section: ET.Element, ns: dict, args: argparse.Namespace): # -
 								   **{f'{XML_ID_KEY}': add_unique_id('l', XML_IDS)[-1]},
 								   n='1')
 
-		# Add <rest>s, and <chord>s and/or<space>s to <layer>s; collect <dir>s
+		# Add <rest>s and <chord>s and/or<space>s to <layer>s; collect <dir>s
 		dirs = []
 		for tabGrp in tab_layer.iter(f'{URI_MEI}tabGrp'):
 			dur = tabGrp.get('dur')
@@ -866,6 +840,32 @@ def handle_section(section: ET.Element, ns: dict, args: argparse.Namespace): # -
 							print(eee.tag, eee.attrib)
 
 	return (section, notes_unspelled_by_ID)
+
+
+def _unwrap_markup_elements(measure, markup_elements):
+	"""
+	Recursively unwraps markup elements inside of the measure.
+	"""
+	unwrapped = True
+	while unwrapped:
+		unwrapped = False
+
+		# Create a parent map
+		parents = {child: parent for parent in measure.iter() for child in parent}
+		# Find markup elements
+		for elem in list(measure.iter()):
+			if elem.tag in markup_elements and elem in parents:
+				parent = parents[elem]
+				index = list(parent).index(elem)
+
+				# Insert child at index in parent
+				for child in list(elem):
+					parent.insert(index, child)
+					index += 1 # for correct order
+
+				# Remove markup element itself
+				parent.remove(elem)
+				unwrapped = True
 
 
 def _make_dir(xml_id: str, dur: int, dots: int, ns: dict): # -> 'ET.Element'
