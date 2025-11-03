@@ -82,7 +82,6 @@ SMUFL_LUTE_DURS = {'f': 'fermataAbove',
 JAVA_PATH = 'tools.music.PitchKeyTools' # <package>.<package>.<file>
 JAVA_PATH_CONV = 'tbp.editor.Editor' # <package>.<package>.<file>
 VERBOSE = False
-ADD_ACCID_GES = True
 URI_MEI = None
 URI_XML = None
 XML_ID_KEY = None
@@ -926,49 +925,48 @@ def spell_pitch(section: ET.Element, notes_unspelled_by_ID: list, args: argparse
 	altGrid = grids_dict['altGrid'] # list
 	pcGrid = grids_dict['pcGrid'] # list
 
-	if ADD_ACCID_GES:
-		key_sig_accid_type = 'f' if int(KEY) <= 0 else 's'
-		# Key sig accidentals as MIDI pitch classes (e.g. 10, 3)
-		key_sig_accid_mpc = [mpcGrid[i] for i in range(len(altGrid)) if altGrid[i] == key_sig_accid_type]
+	key_sig_accid_type = 'f' if int(KEY) <= 0 else 's'
+	# Key sig accidentals as MIDI pitch classes (e.g. 10, 3)
+	key_sig_accid_mpc = [mpcGrid[i] for i in range(len(altGrid)) if altGrid[i] == key_sig_accid_type]
 
 	cmd = ['java', '-cp', args.classpath, JAVA_PATH, args.dev, 'pitch', json.dumps(notes_unspelled_by_ID), 
-		   KEY, json.dumps(mpcGrid), json.dumps(altGrid), json.dumps(pcGrid)]
+		   KEY, json.dumps(mpcGrid), json.dumps(altGrid), json.dumps(pcGrid), args.score]
 	spell_dict = call_java(cmd)
-	accidsInEffect = [[], [], [], [], []] # double flats, flats, naturals, sharps, double sharps
+#	accidsInEffect = [[[]], [[]], [[]], [[]], [[]]] # double flats, flats, naturals, sharps, double sharps
 	for key, val in spell_dict.items():
 		midi_pitch = int(val['pitch'])
 		midi_pitch_class = midi_pitch % 12
+		accidsInEffect = val['accidsInEffect'] # double flats, flats, naturals, sharps, double sharps
 
 		# a. The note is in key	and there are no accidentals in effect
-		if midi_pitch_class in mpcGrid and not any(accidsInEffect):
+		no_aie = not any(p for s1 in accidsInEffect for s2 in s1 for p in s2) # True if accidsInEffect is completely empty
+		if midi_pitch_class in mpcGrid and no_aie:
 			pname = pcGrid[mpcGrid.index(midi_pitch_class)]
-			accid = ''									
-			if ADD_ACCID_GES:
-				accid_ges = key_sig_accid_type if midi_pitch_class in key_sig_accid_mpc else ''
+			accid = ''
+			accid_ges = ''
+			# In case of key sig accidental 
+			if midi_pitch_class in key_sig_accid_mpc:
+				if args.accidentals == YES:
+					accid = key_sig_accid_type
+				else:	
+					accid_ges = key_sig_accid_type
 		# b. The note is in key	and there are accidentals in effect / the note is not in key
 		else:
 			pname = val['pname'] # str
 			accid = val['accid'] # str
-			if ADD_ACCID_GES:
-				accid_ges = val['accid.ges'] # str
+			accid_ges = val['accid.ges'] # str
+			if args.accidentals == YES and accid_ges != '':
+				accid = accid_ges
+				accid_ges = ''
 			accidsInEffect = val['accidsInEffect'] # list
 		
 		# Adapt <note>
 		note = xml_id_map.get(key)
 		note.set('pname', pname)
-		if ADD_ACCID_GES:
-			# accid.ges overrules accid
-			if accid_ges != '':
-				if args.accidentals == YES:
-					note.set('accid', accid_ges)
-				else:
-					note.set('accid.ges', accid_ges)
-			else: 
-				if accid != '':
-					note.set('accid', accid)
-		else:
-			if accid != '':
-				note.set('accid', accid)
+		if accid != '':
+			note.set('accid', accid)
+		elif accid_ges != '':
+			note.set('accid.ges', accid_ges)
 
 
 # Principal code -->
