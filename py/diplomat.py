@@ -723,8 +723,9 @@ def handle_section(section: ET.Element, ns: dict, args: argparse.Namespace): # -
 													 	 int(element.get('tab.fret')), 
 													 	 TUNING)
 						except TypeError:
-							raise Exception(f"Element {element.tag} with attributes\
-											{element.attrib} is either missing tab.course or tab.fret")
+							midi_pitch = -1
+#							raise Exception(f"Element {element.tag} with attributes\
+#											{element.attrib} is either missing tab.course or tab.fret")
 
 						xml_id_note = add_unique_id('n', XML_IDS)[-1]
 						nh_note = make_element(f'{URI_MEI}note', 
@@ -733,7 +734,9 @@ def handle_section(section: ET.Element, ns: dict, args: argparse.Namespace): # -
 											   atts=[(XML_ID_KEY, xml_id_note),
 												  	 ('pname', None),
 												     ('oct', str(_get_octave(midi_pitch))),
-												     ('head.fill', 'solid')]
+												     ('head.fill', 'solid')] if midi_pitch != -1 
+												     else [(XML_ID_KEY, xml_id_note), 
+														   ('visible', 'false')]
 											  )
 						# Map tab <note>
 						tab_notes_by_ID[element.get(XML_ID_KEY)] = (element, nh_note)
@@ -962,7 +965,8 @@ def spell_pitch(section: ET.Element, notes_unspelled_by_ID: list, args: argparse
 		
 		# Adapt <note>
 		note = xml_id_map.get(key)
-		note.set('pname', pname)
+		if midi_pitch != -1:
+			note.set('pname', pname)
 		if accid != '':
 			note.set('accid', accid)
 		elif accid_ges != '':
