@@ -67,7 +67,8 @@ if lib_path not in sys.path:
 	sys.path.insert(0, lib_path)
 
 from py.constants import *
-from py.utils import get_tuning, add_unique_id, handle_namespaces, parse_tree, get_main_MEI_elements, collect_xml_ids, print_all_elements, pretty_print
+from py.utils import (get_tuning, add_unique_id, remove_namespace_from_tag, handle_namespaces, 
+					  parse_tree, get_main_MEI_elements, collect_xml_ids, print_all_elements, pretty_print)
 
 SHIFT_INTERVALS = {F: -2, F6Eb: -2, G: 0, G6F: 0, A: 2, A6G: 2}
 SMUFL_LUTE_DURS = {'f': 'fermataAbove',
@@ -446,7 +447,7 @@ def handle_section_NEW(section: ET.Element, ns: dict, args: argparse.Namespace):
 					flag_dirs = []
 					# Make rhythm flag <dir>s for rests
 					for r in new_staff.findall('.//mei:rest', ns):
-						flag_dir = _make_dir(r.get(XML_ID_KEY), r.get('dur'), r.get('dots'), ns)
+						flag_dir = _make_rhythm_symbol_dir(r.get(XML_ID_KEY), r.get('dur'), r.get('dots'), ns)
 						flag_dirs.append(flag_dir)
 						for child in list(r):
 							if child.tag == f'{URI_MEI}tabDurSym':
@@ -455,7 +456,7 @@ def handle_section_NEW(section: ET.Element, ns: dict, args: argparse.Namespace):
 					# Make rhythm flag <dir>s for chords
 					to_remove = []
 					for c in new_staff.findall('.//mei:chord', ns):
-						flag_dir = _make_dir(c.get(XML_ID_KEY), c.get('dur'), c.get('dots'), ns)
+						flag_dir = _make_rhythm_symbol_dir(c.get(XML_ID_KEY), c.get('dur'), c.get('dots'), ns)
 						# tabDurSyms can be direct children of chord or placed inside wrapper elements
 						for el in list(c):
 							# tabDurSym is a direct child
@@ -661,7 +662,7 @@ def handle_section(section: ET.Element, ns: dict, args: argparse.Namespace): # -
 								   n='1')
 
 		# Add <rest>s and <chord>s and/or<space>s to <layer>s; collect <dir>s
-		dirs = []
+		rhythm_symbol_dirs = []
 		for tabGrp in tab_layer.iter(f'{URI_MEI}tabGrp'):
 			dur = tabGrp.get('dur')
 			dots = tabGrp.get('dots')
@@ -690,7 +691,7 @@ def handle_section(section: ET.Element, ns: dict, args: argparse.Namespace): # -
 									 )
 
 				# 2. Add <dir>
-				dirs.append(_make_dir(xml_id_rest_1, dur, dots, ns))
+				rhythm_symbol_dirs.append(_make_rhythm_symbol_dir(xml_id_rest_1, dur, dots, ns))
 
 				# 3. Map tabGrp
 				rests = (rest_1, None) if args.score == SINGLE else (rest_1, rest_2)
@@ -755,7 +756,7 @@ def handle_section(section: ET.Element, ns: dict, args: argparse.Namespace): # -
 
 				# 2. Add <dir>
 				if flag != None:
-					dirs.append(_make_dir(xml_id_reference, dur, dots, ns))
+					rhythm_symbol_dirs.append(_make_rhythm_symbol_dir(xml_id_reference, dur, dots, ns))
 
 				# 3. Map tabGrp
 				chords = (chord_1, None) if args.score == SINGLE\
@@ -770,12 +771,12 @@ def handle_section(section: ET.Element, ns: dict, args: argparse.Namespace): # -
 		for c in elems_removed_from_measure:
 			# Fermata: needs <dir> (CMN) and <fermata> (= c; tab)
 			if c.tag == f'{URI_MEI}fermata':
-				# Make <dir> for CMN and add 
+				# Add CMN <dir> (to rhythm_symbol_dirs)
 				xml_id_tabGrp = c.get('startid').lstrip('#') # start after '#'
 				xml_id_upper_chord = tabGrps_by_ID[xml_id_tabGrp][1][0].get(XML_ID_KEY)
-				dirs.append(_make_dir(xml_id_upper_chord, 'f', None, ns))
+				rhythm_symbol_dirs.append(_make_rhythm_symbol_dir(xml_id_upper_chord, 'f', None, ns))
 
-				# Add to list	
+				# Add c to list	
 				if args.tablature == YES:
 					curr_non_regular_elements.append(c)
 			# Annotation: needs <annot> (CMN) and <annot> (= c; tab) 
@@ -784,7 +785,7 @@ def handle_section(section: ET.Element, ns: dict, args: argparse.Namespace): # -
 				elem_referred = ORIG_XML_IDS.get(xml_id_referred)				
 
 				# If <annot> refers to a tab element
-				# - always add CMN <annot> (annot) to list
+				# - add CMN <annot> to list
 				# - if tablature is included, also add original <annot> (c) to list
 				if elem_referred.tag in tab_elements:
 					if elem_referred.tag == f'{URI_MEI}note' or elem_referred.tag == f'{URI_MEI}rest':
@@ -800,35 +801,45 @@ def handle_section(section: ET.Element, ns: dict, args: argparse.Namespace): # -
 					if args.tablature == YES:
 						curr_non_regular_elements.append(c)
 				# If <annot> refers to a non-tab element
-				# - always add <annot> (c) to list
+				# - add original <annot> (c) to list
 				else:
 					curr_non_regular_elements.append(c)
-
-##				# Make <annot> for CMN				
-#				xml_id_note = tab_notes_by_ID[xml_id_referred][1].get(XML_ID_KEY)
-#				annot = copy.deepcopy(c)
-#				annot.set('plist', '#' + xml_id_note)
-#				annot.set(XML_ID_KEY, add_unique_id('a', XML_IDS)[-1])
-#
-#				# Add to list
-#				curr_non_regular_elements.append(annot)
-#				if args.tablature == YES:
-#					curr_non_regular_elements.append(c)
 			# Fingering: needs <fing> (= c; tab)
 			elif c.tag == f'{URI_MEI}fing':
-				# Add to list
+				# Add c to list
 				if args.tablature == YES:
+					curr_non_regular_elements.append(c)
+			# (Text) directive: needs <dir> (CMN) and <dir> (= c; tab)
+			elif c.tag == f'{URI_MEI}dir':
+				# Add CMN <dir> to list
+				direc = copy.deepcopy(c)
+				for e in direc.iter():
+					e.set(XML_ID_KEY, add_unique_id(remove_namespace_from_tag(e.tag)[0], XML_IDS)[-1])
+					if 'staff' in e.attrib:
+						e.set('staff', '1') # probably not needed but doesn't hurt
+					if 'startid' in e.attrib:
+						xml_id_tabGrp = e.get('startid').lstrip('#') # start after '#'
+						xml_id_upper_chord = tabGrps_by_ID[xml_id_tabGrp][1][0].get(XML_ID_KEY)
+						e.set('startid', '#' + xml_id_upper_chord)
+					if 'fontsize' in e.attrib:
+						e.set('fontsize', 'small')
+				curr_non_regular_elements.append(direc)
+
+				# Add c to list	
+				if args.tablature == YES:
+					c.set('staff', '3' if args.score == DOUBLE else '2')
 					curr_non_regular_elements.append(c)
 			# Other
 			else:
-				# Add to list
+				# Add c to list
 				curr_non_regular_elements.append(c)
 
 		# 4. Add non-regular <measure> elements to completed <measure> in fixed sequence
 		fermatas = [e for e in curr_non_regular_elements if e.tag == f'{URI_MEI}fermata']
 		annots = [e for e in curr_non_regular_elements if e.tag == f'{URI_MEI}annot']
 		fings = [e for e in curr_non_regular_elements if e.tag == f'{URI_MEI}fing']
-		for e in dirs + fermatas + annots + fings:
+		direcs = [e for e in curr_non_regular_elements if e.tag == f'{URI_MEI}dir']
+		for e in rhythm_symbol_dirs + fermatas + annots + fings + direcs:
 			measure.append(e)
 
 		if VERBOSE:
@@ -870,7 +881,7 @@ def _unwrap_markup_elements(measure, markup_elements):
 				unwrapped = True
 
 
-def _make_dir(xml_id: str, dur: int, dots: int, ns: dict): # -> 'ET.Element'
+def _make_rhythm_symbol_dir(xml_id: str, dur: int, dots: int, ns: dict): # -> 'ET.Element'
 	d = ET.Element(f'{URI_MEI}dir', 
 				   **{f'{XML_ID_KEY}': add_unique_id('d', XML_IDS)[-1]},
 				   place='above', 
@@ -1036,6 +1047,16 @@ def transcribe(in_file: str, in_path: str, out_path: str, args: argparse.Namespa
 	for line in lines:
 		if line[1:].startswith('?xml-model'):
 			model_pi += line + '\n'
+	###
+
+	for elem in root.iter():
+		for attr, val in elem.attrib.items():
+			if val is None:
+				print(f"Element <{elem.tag}> has attribute '{attr}' = None")
+				print(elem.get(XML_ID_KEY))
+
+
+	###
 	xml_str = ET.tostring(root, encoding='unicode')
 	xml_str = f'{declaration}{model_pi}{xml_str}'
 	
