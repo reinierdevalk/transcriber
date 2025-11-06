@@ -1047,16 +1047,6 @@ def transcribe(in_file: str, in_path: str, out_path: str, args: argparse.Namespa
 	for line in lines:
 		if line[1:].startswith('?xml-model'):
 			model_pi += line + '\n'
-	###
-
-	for elem in root.iter():
-		for attr, val in elem.attrib.items():
-			if val is None:
-				print(f"Element <{elem.tag}> has attribute '{attr}' = None")
-				print(elem.get(XML_ID_KEY))
-
-
-	###
 	xml_str = ET.tostring(root, encoding='unicode')
 	xml_str = f'{declaration}{model_pi}{xml_str}'
 	
