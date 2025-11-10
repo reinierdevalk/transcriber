@@ -68,7 +68,8 @@ if lib_path not in sys.path:
 
 from py.constants import *
 from py.utils import (get_tuning, add_unique_id, remove_namespace_from_tag, handle_namespaces, 
-					  parse_tree, get_main_MEI_elements, collect_xml_ids, print_all_elements, pretty_print)
+					  parse_tree, get_main_MEI_elements, collect_xml_ids, unwrap_markup_elements,
+					  print_all_elements, pretty_print)
 
 SHIFT_INTERVALS = {F: -2, F6Eb: -2, G: 0, G6F: 0, A: 2, A6G: 2}
 SMUFL_LUTE_DURS = {'f': 'fermataAbove',
@@ -609,12 +610,13 @@ def handle_section(section: ET.Element, ns: dict, args: argparse.Namespace): # -
 	notes_unspelled_by_ID = []
 	regular_elements = [f'{URI_MEI}{e}' for e in ['measure', 'staff', 'layer', 'beam', 'tabGrp', 'tabDurSym', 'note', 'rest']]
 	# Markup elements used only in diplomatic transcriptions of E-LAUTE project:
-	markup_elements = [f'{URI_MEI}{e}' for e in ['damage', 'unclear', 'del', 'add', 'supplied', 'sic']]
+	markup_elements = [f'{URI_MEI}{e}' for e in (MARKUP_ELEMENTS + ['sic'])]
 	tab_elements = [f'{URI_MEI}{e}' for e in ['tabGrp', 'tabDurSym', 'note', 'rest']]
 
+	# Unwrap all markup elements
+	unwrap_markup_elements(section, markup_elements)
+
 	for measure in section.iter(f'{URI_MEI}measure'):
-		# 0. Unwrap all markup elements
-		_unwrap_markup_elements(measure, markup_elements)
 		# 1. Collect any non-regular elements in <measure> and remove them from it
 		non_regular_elements = [elem for elem in measure.iter() if elem.tag not in regular_elements]
 		# Collect
@@ -853,32 +855,6 @@ def handle_section(section: ET.Element, ns: dict, args: argparse.Namespace): # -
 							print(eee.tag, eee.attrib)
 
 	return (section, notes_unspelled_by_ID)
-
-
-def _unwrap_markup_elements(measure, markup_elements):
-	"""
-	Recursively unwraps markup elements inside of the measure.
-	"""
-	unwrapped = True
-	while unwrapped:
-		unwrapped = False
-
-		# Create a parent map
-		parents = {child: parent for parent in measure.iter() for child in parent}
-		# Find markup elements
-		for elem in list(measure.iter()):
-			if elem.tag in markup_elements and elem in parents:
-				parent = parents[elem]
-				index = list(parent).index(elem)
-
-				# Insert child at index in parent
-				for child in list(elem):
-					parent.insert(index, child)
-					index += 1 # for correct order
-
-				# Remove markup element itself
-				parent.remove(elem)
-				unwrapped = True
 
 
 def _make_rhythm_symbol_dir(xml_id: str, dur: int, dots: int, ns: dict): # -> 'ET.Element'
