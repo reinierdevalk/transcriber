@@ -149,7 +149,7 @@ def make_element(name: str, parent: ET.Element=None, atts: list=[]): # -> ET.Ele
 
 
 # Main functions -->
-def handle_scoreDef(scoreDef: ET.Element, ns: dict, args: argparse.Namespace): # -> None
+def handle_scoreDef(scoreDef: ET.Element, ns: dict, args: argparse.Namespace): # -> None:
 	"""
 	Basic structure of <scoreDef>:
 
@@ -292,13 +292,13 @@ def _get_MEI_keysig(key: str): # -> str:
 
 
 # NEW!
-def clean_measure_number(mnum: str): # -> str
+def clean_measure_number(mnum: str): # -> str:
 	match = re.match(r'^(\d+)', mnum)
 	return match.group(1) if match else None
 
 
 # NEW!
-def copy_and_transform_staff(elem: ET.Element, parent_map: dict): # -> ET.Element
+def copy_and_transform_staff(elem: ET.Element, parent_map: dict): # -> ET.Element:
 	elems_to_replace = [f'{URI_MEI}tabGrp', f'{URI_MEI}note', f'{URI_MEI}rest']
 	notes = {} # (key = xml:id of <note> (tab) : value = <note> (CMN))
 	chords = {} # (key = xml:id of <tabGrp> : value = <chord> or <rest> (!))
@@ -345,7 +345,7 @@ def copy_and_transform_staff(elem: ET.Element, parent_map: dict): # -> ET.Elemen
 
 
 # NEW!
-def make_new_element(elem: ET.Element, parent_map: dict): # -> ET.Element
+def make_new_element(elem: ET.Element, parent_map: dict): # -> ET.Element:
 	if elem.tag == f'{URI_MEI}tabGrp':
 		# If elem contains notes: new_elem is a <chord>
 		if any(child.tag == f'{URI_MEI}note' for child in elem.iter()):
@@ -385,7 +385,7 @@ def make_new_element(elem: ET.Element, parent_map: dict): # -> ET.Element
 
 
 # NEW!
-def find_ancestor_with_tag(elem: ET.Element, parent_map: dict, tag: str): # -> ET.Element | None
+def find_ancestor_with_tag(elem: ET.Element, parent_map: dict, tag: str): # -> ET.Element | None:
 	"""
 	Walks up the tree from `elem` using `parent_map` and returns the first ancestor
 	with the given `tag`. Returns None if no such ancestor is found.
@@ -407,7 +407,7 @@ def find_ancestor_with_tag(elem: ET.Element, parent_map: dict, tag: str): # -> E
 
 
 # NEW!
-def get_element_name(elem: ET.Element): # -> str
+def get_element_name(elem: ET.Element): # -> str:
 	"""
 	Strips leading URL from tag.
 	"""
@@ -415,7 +415,7 @@ def get_element_name(elem: ET.Element): # -> str
 
 
 # NEW!
-def handle_section_NEW(section: ET.Element, ns: dict, args: argparse.Namespace): # -> tuple
+def handle_section_NEW(section: ET.Element, ns: dict, args: argparse.Namespace): # -> tuple:
 	tab_staff_n = '2' if args.score == SINGLE else '3'
 	measure = clean_measure_number(section.find('.//mei:measure', ns).get('n'))
 
@@ -573,7 +573,7 @@ def handle_section_NEW(section: ET.Element, ns: dict, args: argparse.Namespace):
 	return (section, notes_unspelled_by_ID)
 
 
-def handle_section(section: ET.Element, ns: dict, args: argparse.Namespace): # -> tuple
+def handle_section(section: ET.Element, ns: dict, args: argparse.Namespace): # -> tuple:
 	"""
 	Basic structure of <section>:
 
@@ -673,34 +673,47 @@ def handle_section(section: ET.Element, ns: dict, args: argparse.Namespace): # -
 			space = tabGrp.find('mei:space', ns)
 			xml_id_tabGrp = tabGrp.get(XML_ID_KEY)
 
-			# Add <rest>s. Rests can be implicit (a <tabGrp> w/ only a <tabDurSym>) or
-			# explicit (a <tabGrp> w/ a <rest> (and possibly a <tabDurSym>)). Both are
-			# transcribed as a <rest> in the CMN
-			if (flag != None and (len(tabGrp) == 1) or rest != None): # or space != None):
-				xml_id_rest_1 = add_unique_id('r', XML_IDS)[-1]
-				xml_id_rest_2 = add_unique_id('r', XML_IDS)[-1]
+			# Add <rests> (i.e., add <space>s). Possibilities
+			# 1. <tabGrp> containing <tabDurSym/> + <rest> (rhythm-flag looking or rest-looking): explicit
+			#    --> <space> with <dir>
+			# 2. a. <tabGrp> containing <rest> (rhythm-flag looking) (~= 3.): implicit
+			#    --> <space> with <dir>
+			#    b. <tabGrp> containing <rest> (rest-looking): explicit
+			#    --> <space>  
+			# 3. <tabGrp> containing <tabDurSym/> (above or inside the system): implicit
+			#    --> <space> with <dir>
+			# NB Old approach: create xml_id_rest_1 (_2), rest_1 (_2), and rests instead of 
+			#    xml_id_space_1 (_2), space_1 (_2), and spaces
+			rest_case_1 = flag != None and rest != None
+			rest_case_2a = flag == None and rest != None and rest.get('glyph.name') in SMUFL_LUTE_DURS.values()
+			rest_case_2b = flag == None and rest != None and rest.get('glyph.name') not in SMUFL_LUTE_DURS.values()
+			rest_case_3 = flag != None and rest == None and len(tabGrp) == 1
+			if rest_case_1 or rest_case_2a or rest_case_2b or rest_case_3:
+				xml_id_space_1 = add_unique_id('s', XML_IDS)[-1]
+				xml_id_space_2 = add_unique_id('s', XML_IDS)[-1]
 
-				# 1. Add <rest>s to <layer>s
-				rest_1 = make_element(f'{URI_MEI}rest', 
+				# 1. Add <space>s to <layer>s
+				space_1 = make_element(f'{URI_MEI}space', 
 									  parent=nh_layer_1, 
-									  atts=[(XML_ID_KEY, xml_id_rest_1),
+									  atts=[(XML_ID_KEY, xml_id_space_1),
 										 	('dur', dur)]
 									 )
-				rest_2 = make_element(f'{URI_MEI}rest', 
+				space_2 = make_element(f'{URI_MEI}space', 
 									  parent=nh_layer_2, 
-									  atts=[(XML_ID_KEY, xml_id_rest_2),
+									  atts=[(XML_ID_KEY, xml_id_space_2),
 										 	('dur', dur)]
 									 )
 
 				# 2. Add <dir>
-				rhythm_symbol_dirs.append(_make_rhythm_symbol_dir(xml_id_rest_1, dur, dots, ns))
+				if not rest_case_2b:
+					rhythm_symbol_dirs.append(_make_rhythm_symbol_dir(xml_id_space_1, dur, dots, ns))
 
 				# 3. Map tabGrp
-				rests = (rest_1, None) if args.score == SINGLE else (rest_1, rest_2)
-				tabGrps_by_ID[xml_id_tabGrp] = (tabGrp, rests)
+				spaces = (space_1, None) if args.score == SINGLE else (space_1, space_2)
+				tabGrps_by_ID[xml_id_tabGrp] = (tabGrp, spaces)
 				# Map tab <rest>
 				if rest != None:
-					tab_notes_by_ID[rest.get(XML_ID_KEY)] = (rest, rests) 
+					tab_notes_by_ID[rest.get(XML_ID_KEY)] = (rest, spaces)
 
 			# Add <chord>s and/or <space>s	
 			else:
@@ -857,7 +870,7 @@ def handle_section(section: ET.Element, ns: dict, args: argparse.Namespace): # -
 	return (section, notes_unspelled_by_ID)
 
 
-def _make_rhythm_symbol_dir(xml_id: str, dur: int, dots: int, ns: dict): # -> 'ET.Element'
+def _make_rhythm_symbol_dir(xml_id: str, dur: int, dots: int, ns: dict): # -> ET.Element:
 	d = ET.Element(f'{URI_MEI}dir', 
 				   **{f'{XML_ID_KEY}': add_unique_id('d', XML_IDS)[-1]},
 				   place='above', 
@@ -891,7 +904,7 @@ def _make_rhythm_symbol_dir(xml_id: str, dur: int, dots: int, ns: dict): # -> 'E
 	return d
 
 
-def _get_midi_pitch(course: int, fret: int, arg_tuning: str): # -> int
+def _get_midi_pitch(course: int, fret: int, arg_tuning: str): # -> int:
 	# Determine the MIDI pitches for the open courses
 	abzug = 0 if not '-' in arg_tuning else 2
 	open_courses = [67, 62, 57, 53, 48, (43 - abzug)]
@@ -906,7 +919,7 @@ def _get_octave(midi_pitch: int): # -> int:
 	return int((c / 12) - 1)
 
 
-def spell_pitch(section: ET.Element, notes_unspelled_by_ID: list, args: argparse.Namespace): # -> None
+def spell_pitch(section: ET.Element, notes_unspelled_by_ID: list, args: argparse.Namespace): # -> None:
 	# Dictionary for fast lookup of xml:ids
 	xml_id_map = {e.get(XML_ID_KEY): e for e in section.iter() if XML_ID_KEY in e.attrib}
 
@@ -961,7 +974,7 @@ def spell_pitch(section: ET.Element, notes_unspelled_by_ID: list, args: argparse
 
 
 # Principal code -->
-def transcribe(in_file: str, in_path: str, out_path: str, args: argparse.Namespace): # -> None
+def transcribe(in_file: str, in_path: str, out_path: str, args: argparse.Namespace): # -> None:
 	# 0. File processing
 	filename, ext = os.path.splitext(os.path.basename(in_file))
 	out_file = filename + '-dipl' + MEI
