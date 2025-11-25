@@ -69,7 +69,7 @@ if lib_path not in sys.path:
 from py.constants import *
 from py.utils import (get_tuning, add_unique_id, remove_namespace_from_tag, handle_namespaces, 
 					  parse_tree, get_main_MEI_elements, collect_xml_ids, unwrap_markup_elements,
-					  print_all_elements, pretty_print)
+					  print_all_elements, pretty_print, get_isodate)
 
 SHIFT_INTERVALS = {F: -2, F6Eb: -2, G: 0, G6F: 0, A: 2, A6G: 2}
 SMUFL_LUTE_DURS = {'f': 'fermataAbove',
@@ -149,6 +149,50 @@ def make_element(name: str, parent: ET.Element=None, atts: list=[]): # -> ET.Ele
 
 
 # Main functions -->
+def handle_encodingDesc(encodingDesc: ET.Element, ns: dict, args: argparse.Namespace): # -> None:
+	"""
+	Basic structure of <encodingDesc>:
+
+	<encodingDesc>
+	  <appInfo>
+	    <application>
+	      <name/>
+	      (<p/>)
+	    </application>  
+	  </appInfo>
+	  ...
+	</encodingDesc>
+	"""
+
+	# Handle appInfo
+	appInfo = encodingDesc.find('.//mei:appInfo', ns)
+	# Make new <application>
+	application = make_element(f'{URI_MEI}application', 
+						 	   atts=[(XML_ID_KEY, add_unique_id('a', XML_IDS)[-1]),
+							   		 ('isodate', get_isodate()), 
+							   		 ('version', args.version)]
+							  )
+	ET.SubElement(application, f'{URI_MEI}name', 
+				  **{f'{XML_ID_KEY}': add_unique_id('n', XML_IDS)[-1]}
+				 ).text = 'abtab -- transcriber'
+	ET.SubElement(application, f'{URI_MEI}p', 
+				  **{f'{XML_ID_KEY}': add_unique_id('p', XML_IDS)[-1]}
+				 ).text = f'Input file: {args.file}'
+	# If there is no <appInfo>: create one
+	if appInfo is None:
+		appInfo = ET.SubElement(encodingDesc, f'{URI_MEI}appInfo',
+								**{f'{XML_ID_KEY}': add_unique_id('ai', XML_IDS)[-1]}
+				 			   )
+	# Else: remove any existing abtab <application>s
+	else:
+		for a in appInfo.findall('.//mei:application', ns):
+			name = a.find('.//mei:name', ns)
+			if name is not None and name.text and name.text.startswith('abtab'):
+				appInfo.remove(a)
+	# Add <application> 			
+	appInfo.append(application)
+
+
 def handle_scoreDef(scoreDef: ET.Element, ns: dict, args: argparse.Namespace): # -> None:
 	"""
 	Basic structure of <scoreDef>:
@@ -357,7 +401,7 @@ def make_new_element(elem: ET.Element, parent_map: dict): # -> ET.Element:
 		# If elem contains no notes: new_elem is a <rest>
 		else:
 			new_elem = make_element(f'{URI_MEI}rest', 
-									atts=[(XML_ID_KEY, add_unique_id('c', XML_IDS)[-1]),
+									atts=[(XML_ID_KEY, add_unique_id('r', XML_IDS)[-1]),
 										  ('dur', elem.get('dur'))]
 								   )
 	elif elem.tag == f'{URI_MEI}note':
@@ -976,7 +1020,7 @@ def spell_pitch(section: ET.Element, notes_unspelled_by_ID: list, args: argparse
 # Principal code -->
 def transcribe(in_file: str, in_path: str, out_path: str, args: argparse.Namespace): # -> None:
 	# 0. File processing
-	filename, ext = os.path.splitext(os.path.basename(in_file))
+	filename, ext = os.path.splitext(in_file) # in_file is already basename (see method call in transcriber.py)
 	out_file = filename + '-dipl' + MEI
 	args.file = in_file # NB already the case when using -f
 	# Get file contents as MEI string
@@ -992,8 +1036,12 @@ def transcribe(in_file: str, in_path: str, out_path: str, args: argparse.Namespa
 	else:
 		with open(os.path.join(in_path, in_file), 'r', encoding='utf-8') as file:
 			mei_str = file.read()
+	# Get version
+	with open(os.path.join(args.libpath, 'VERSION'), 'r', encoding='utf-8') as file:
+		version = file.read()
+	args.version = version
 
-	# 1. Preliminaries 
+	# 0. Preliminaries 
 	# a. Handle namespaces
 	ns = handle_namespaces(mei_str)
 	global URI_MEI
@@ -1002,7 +1050,7 @@ def transcribe(in_file: str, in_path: str, out_path: str, args: argparse.Namespa
 	URI_XML = f'{{{ns['xml']}}}'
 	global XML_ID_KEY
 	XML_ID_KEY = f'{URI_XML}id'
-	# b. Get the tree, root (<mei>), and main MEI elements (<meiHead>, <score>)
+	# b. Get the tree, root (<mei>), main MEI elements (<meiHead>, <music>), and <score>
 	tree, root = parse_tree(mei_str)
 	meiHead, music = get_main_MEI_elements(root, ns)
 	score = music.find('.//mei:score', ns)
@@ -1013,6 +1061,10 @@ def transcribe(in_file: str, in_path: str, out_path: str, args: argparse.Namespa
 	ORIG_XML_IDS = { # TODO keep?
 		elem.attrib[XML_ID_KEY]: elem for elem in root.iter() if XML_ID_KEY in elem.attrib
 	}
+
+	# 1. Handle <encodingDesc>
+	encodingDesc = meiHead.find('.//mei:encodingDesc', ns)
+	handle_encodingDesc(encodingDesc, ns, args)
 
 	# 2. Handle <scoreDef>s
 	scoreDefs = score.findall('.//mei:scoreDef', ns)
