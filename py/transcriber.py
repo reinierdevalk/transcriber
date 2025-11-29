@@ -1,27 +1,10 @@
-"""
-This script must be called from the folder that holds it, and that furthermore 
-contains the following subfolders:
-- in/	contains the input MEI file
-- out/	where the output MEI file is stored
-- java/	contains the Java code required for the pitch spelling:
-        - utils/lib/commons-lang3-3.8.1.jar
-        - utils/bin/tools/music/PitchKeyTools.class 
-        - utils/bin/tools/text/StringTools.class
-
-NB: Updated from Python 3.6.0 to 3.12.0 for this script.
-
-Relevant Python documentation
-- https://docs.python.org/3/library/argparse.html
-
-TODO
-- have the choices rendered automatically in the parser.add:argument()s' help='...' 
-  (or remove metavar='')
-- how do I make a rest invisible?
-- diplomat.py
-  - @head.fill on <note> is not rendered in Verovio
-  - show flags option: do not show flags above notehead notation (/tab) if tab + nh
-
-"""
+# TODO
+# - have the choices rendered automatically in the parser.add:argument()s' help='...' 
+#   (or remove metavar='')
+# - how do I make a rest invisible?
+# - diplomat.py
+#   - @head.fill on <note> is not rendered in Verovio
+#   - show flags option: do not show flags above notehead notation (/tab) if tab + nh
 
 import argparse
 import glob
@@ -44,63 +27,75 @@ from py.constants import *
 
 
 # Main functions -->
-def parse_args(): # -> None
+def parse_args(): # -> None:
+	"""
+	See https://docs.python.org/3/library/argparse.html
+	"""
+
 	parser = argparse.ArgumentParser(prog=		 'diplomat',
 									 description='Creates a diplomatic transcription in notehead notation.',
 									 epilog=	 'Stores a new MEI file in the output folder (\'out/\').')
 	# Optional args
-	parser.add_argument('-u', '--tuning', 
-						choices=[F, F6Eb, G, G6F, A, A6G, INPUT], 
-						default=INPUT,
-						metavar='', 
-						help=f'the tuning; options are [{F}, {F6Eb}, {G}, {G6F}, {A}, {A6G}], default is {G}')
 	parser.add_argument('-k', '--key', 
 						choices=[str(i) for i in list(range(-5, 6, 1))], 
 						default=INPUT, 
 						metavar='',
-						help='the key signature for the transcription, expressed as its\
-							  number of accidentals (where a negative number indicates flats);\
-							  options are [-5, ..., 5], default is 0')
+						help=''
+					   )
 	parser.add_argument('-x', '--accidentals', 
 						choices=[YES, NO], 
 						default=NO, 
 						metavar='',
-						help='whether or not to show all accidentals; options are [y, n], default is n')
+						help=''
+					   )
 	parser.add_argument('-m', '--mode', 
 						choices=[MAJOR, MINOR], 
 						default=MAJOR,
 						metavar='', 
-						help='the key signature\'s \'mode\': major (0) or minor (1);\
-						  options are [0, 1], default is 0')
+						help=''
+					   )
+	parser.add_argument('-u', '--tuning', 
+						choices=[F, F6Eb, G, G6F, A, A6G, INPUT], 
+						default=INPUT,
+						metavar='', 
+						help=''
+					   )
 	parser.add_argument('-s', '--score', 
 						choices=[SINGLE, DOUBLE, VOCAL], 
 						default=DOUBLE,
 						metavar='', 
-						help='the score type: single-staff, double-staff, or vocal;\
-							  options are [s, d, v], default is d')
+						help=''
+					   )
 	parser.add_argument('-t', '--tablature', 
 						choices=[YES, NO], 
 						default=YES,
 						metavar='',
-						help='whether or not to retain the tab in the transcription;\
-							  options are [y, n], default is y')
+						help=''
+					   )
 	parser.add_argument('-y', '--type', 
 						choices=[FLT, ILT, SLT, GLT, INPUT], 
 						default=INPUT,
 						metavar='',
-						help='the tablature type;\
-							  options are [FLT, ILT, SLT, GLT], default is FLT')
-	parser.add_argument('-f', '--file', 
-						help='the input file')
+						help=''
+					   )
+	parser.add_argument('-p', '--placement', 
+						choices=[TOP, BOTTOM], 
+						default=BOTTOM,
+						metavar='',
+						help=''
+					   )
+	parser.add_argument('-c', '--custom', 
+						choices=['dlaute', 'plaute', 'user'], 
+						metavar='',
+						help=''
+					   )	
+	parser.add_argument('-f', '--file', help='')
+#	parser.add_argument('-h', '--help', help='')
 	# Positional args
-	parser.add_argument('dev', 
-						help='true if model development case')
-	parser.add_argument('rootpath', 
-						help='the abtab home directory.')
-	parser.add_argument('libpath', 
-						help='the directory holding the code.')
-	parser.add_argument('classpath', 
-						help='the Java classpath')
+	parser.add_argument('dev', help='')
+	parser.add_argument('rootpath', help='')
+	parser.add_argument('libpath', help='')
+	parser.add_argument('classpath', help='')
 
 	return parser.parse_args()
 
