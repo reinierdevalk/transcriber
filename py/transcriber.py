@@ -12,6 +12,7 @@ import json
 import os
 import re
 import sys
+from traceback import format_exc
 
 # Ensure that Python can find .py files in utils/py/ regardless of where the script
 # is run from by adding the path holding the code (<lib_path>) to sys.path
@@ -130,5 +131,15 @@ if __name__ == "__main__":
 			in_files.extend(glob.glob(pattern))
 		in_files = [os.path.basename(f) for f in in_files]
 
+	error_li = []
 	for in_file in in_files:
-		transcribe(in_file, in_path, out_path, args)
+		try:
+			transcribe(in_file, in_path, out_path, args)
+		except Exception as e:
+			error_li.append((in_file,format_exc()))
+			continue
+	
+	if error_li:
+		print('\n\n'.join([(f"While transcribing {file} the following Error occured. \n{err}\n"
+					 f"Please create an Issue with the Error message and the problematic file at " 
+					 "https://github.com/reinierdevalk/abtab/issues") for file,err in error_li]))
