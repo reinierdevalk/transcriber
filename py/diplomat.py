@@ -790,26 +790,35 @@ def handle_section(section: ET.Element, ns: dict, args: argparse.Namespace): # -
 					curr_non_regular_elements.append(c)
 			# Annotation: needs <annot> (CMN) and <annot> (= c; tab) 
 			elif c.tag == f'{URI_MEI}annot':
-				xml_id_referred = c.get('plist').lstrip('#') # start after '#'
-				elem_referred = ORIG_XML_IDS.get(xml_id_referred)				
+				xml_ids_referred = [xml_id.strip('#') for xml_id in c.get('plist').split()] # split plist into xml_ids, remove #
+				elems_referred = [ORIG_XML_IDS.get(id) for id in xml_ids_referred]				
 
-				# If <annot> refers to a tab element
+				# If <annot> refers to tab elements
 				# - add CMN <annot> to list
 				# - if tablature is included, also add original <annot> (c) to list
-				if elem_referred.tag in tab_elements:
-					if elem_referred.tag == f'{URI_MEI}note' or elem_referred.tag == f'{URI_MEI}rest':
-						xml_id_tab_elem = tab_notes_by_ID[xml_id_referred][1].get(XML_ID_KEY)
-					elif elem_referred.tag == f'{URI_MEI}tabGrp':
-						xml_id_tab_elem = tabGrps_by_ID[xml_id_tabGrp][1][0].get(XML_ID_KEY)
-					elif elem_referred.tag == f'{URI_MEI}tabDurSym':
-						pass # TODO refer to <dir> that represents <tabDurSym>
+
+				contains_tab_elem = False
+				xml_ids_tab_elem = []
+				for elem_referred, xml_id_referred in zip(elems_referred,xml_ids_referred):
+					if elem_referred.tag in tab_elements:
+						contains_tab_elem = True
+						if elem_referred.tag == f'{URI_MEI}note' or elem_referred.tag == f'{URI_MEI}rest':
+							xml_ids_tab_elem.append(tab_notes_by_ID[xml_id_referred][1].get(XML_ID_KEY))
+						elif elem_referred.tag == f'{URI_MEI}tabGrp':
+							xml_ids_tab_elem.append(tabGrps_by_ID[xml_id_tabGrp][1][0].get(XML_ID_KEY))
+						elif elem_referred.tag == f'{URI_MEI}tabDurSym':
+							pass # TODO refer to <dir> that represents <tabDurSym>
+					else:
+						xml_ids_tab_elem.append(xml_id_referred)
+				
+				if contains_tab_elem:
 					annot = copy.deepcopy(c)
-					annot.set('plist', '#' + xml_id_tab_elem)
+					annot.set('plist', " ".join(['#' + xml_id for xml_id in xml_ids_tab_elem]))
 					annot.set(XML_ID_KEY, add_unique_id('a', XML_IDS)[-1])
 					curr_non_regular_elements.append(annot)
 					if args.tablature == YES:
 						curr_non_regular_elements.append(c)
-				# If <annot> refers to a non-tab element
+				# If <annot> refers only to non-tab element
 				# - add original <annot> (c) to list
 				else:
 					curr_non_regular_elements.append(c)
