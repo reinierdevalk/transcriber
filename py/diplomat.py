@@ -107,7 +107,8 @@ def handle_encodingDesc(encodingDesc: ET.Element, ns: dict, args: argparse.Names
 	  <appInfo>
 	    <application>
 	      <name/>
-	      (<p/>)
+	      <p/>
+	      <p/>
 	    </application>  
 	  </appInfo>
 	  ...
@@ -128,6 +129,9 @@ def handle_encodingDesc(encodingDesc: ET.Element, ns: dict, args: argparse.Names
 	ET.SubElement(application, f'{URI_MEI}p', 
 				  **{f'{XML_ID_KEY}': add_unique_id('p', XML_IDS)[-1]}
 				 ).text = f'Input file: {args.file}'
+	ET.SubElement(application, f'{URI_MEI}p', 
+				  **{f'{XML_ID_KEY}': add_unique_id('p', XML_IDS)[-1]}
+				 ).text = f'Output file: {os.path.splitext(args.file)[0]}-dipl{MEI}'
 	# If there is no <appInfo>: create one
 	if appInfo is None:
 		appInfo = ET.SubElement(encodingDesc, f'{URI_MEI}appInfo',
@@ -968,11 +972,11 @@ def spell_pitch(section: ET.Element, notes_unspelled_by_ID: list, args: argparse
 
 
 # Principal code -->
-def transcribe(in_file: str, in_path: str, out_path: str, args: argparse.Namespace): # -> None:
+def transcribe(in_path: str, out_path: str, args: argparse.Namespace): # -> None:
 	# 0. File processing
+	in_file = args.file
 	filename, ext = os.path.splitext(in_file) # in_file is already basename (see method call in transcriber.py)
 	out_file = filename + '-dipl' + MEI
-	args.file = in_file # NB already the case when using -f
 	# Get file contents as MEI string
 	if ext != MEI:
 		# As in abtab converter: provide three opts, always with their default vals, and no user opts
