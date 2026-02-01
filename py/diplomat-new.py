@@ -995,9 +995,6 @@ def transcribe(in_path: str, out_path: str, args: argparse.Namespace): # -> None
 		version = file.read()
 	args.version = version
 
-	print(args.file)
-	dgdfg
-
 	# 0. Preliminaries 
 	# a. Handle namespaces
 	ns = handle_namespaces(mei_str)
