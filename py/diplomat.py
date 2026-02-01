@@ -21,7 +21,7 @@ from py.utils import (get_tuning, add_unique_id, remove_namespace_from_tag, hand
 					  parse_tree, get_main_MEI_elements, collect_xml_ids, unwrap_markup_elements,
 					  print_all_elements, pretty_print, get_isodate)
 
-SHIFT_INTERVALS = {F: -2, F6Eb: -2, G: 0, G6F: 0, A: 2, A6G: 2}
+SHIFT_INTERVALS = {D: -5, E: -3, F: -2, F6Eb: -2, G: 0, G6F: 0, A: 2, A6G: 2}
 SMUFL_LUTE_DURS = {'f': 'fermataAbove',
 				   1: 'luteDurationDoubleWhole',
 				   2: 'luteDurationWhole',
@@ -795,7 +795,9 @@ def handle_section(section: ET.Element, ns: dict, args: argparse.Namespace): # -
 			# Annotation: needs <annot> (CMN) and <annot> (= c; tab) 
 			elif c.tag == f'{URI_MEI}annot':
 				xml_id_referred = c.get('plist').lstrip('#') # start after '#'
-				elem_referred = ORIG_XML_IDS.get(xml_id_referred)				
+				elem_referred = ORIG_XML_IDS.get(xml_id_referred)
+
+				print(xml_id_referred)			
 
 				# If <annot> refers to a tab element
 				# - add CMN <annot> to list
