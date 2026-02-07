@@ -5,8 +5,6 @@ import os
 import re
 import sys
 import xml.etree.ElementTree as ET
-import lxml
-from lxml import etree
 from subprocess import Popen, PIPE, run
 
 # Ensure that Python can find .py files in utils/py/ regardless of where the script
@@ -19,8 +17,8 @@ if lib_path not in sys.path:
 	sys.path.insert(0, lib_path)
 
 from py.constants import *
-from py.utils import (get_tuning, add_unique_id, remove_namespace_from_tag, get_namespaces,  
-					  get_main_MEI_elements, collect_xml_ids, unwrap_markup_elements,
+from py.utils import (get_tuning, add_unique_id, remove_namespace_from_tag, handle_namespaces, 
+					  parse_tree, get_main_MEI_elements, collect_xml_ids, unwrap_markup_elements,
 					  print_all_elements, pretty_print, get_isodate)
 
 SHIFT_INTERVALS = {D: -5, E: -3, F: -2, F6Eb: -2, G: 0, G6F: 0, A: 2, A6G: 2}
@@ -40,11 +38,11 @@ URI_MEI = None
 URI_XML = None
 XML_ID_KEY = None
 ORIG_XML_IDS = None
-XML_IDS = None
+XML_IDS = None 
 TUNING = None
-KEY = None
-TYPE = None
-TOOL_NAME = 'abtab -- transcriber'
+KEY = None 
+TYPE = None 
+
 
 # Helper functions -->
 def call_java(cmd: list, use_Popen: bool=False): # -> dict:
@@ -79,31 +77,7 @@ def call_java(cmd: list, use_Popen: bool=False): # -> dict:
 	return json.loads(outp)
 
 
-def make_element(name: str, parent: etree._Element = None, atts: list[tuple[str, str]] = None): # -> etree._Element:
-	"""
-	Convenience method for creating an lxml element or SubElement object with a one-liner. 
-	Useful because, in the conventional way, any attributes that contain a dot in their 
-	name must be set separately with set():
-
-	e = etree.Element(name, att_1='<val_1>', att_2='<val_2>', ..., att_n='<val_n>')
-	e.set('<att_with_dot>', '<val>')
-
-	or 
-
-	se = etree.SubElement(parent, name, att_1='<val_1>', att_2='<val_2>', ..., att_n='<val_n>')
-	se.set('<att_with_dot>', '<val>')
-	"""
-
-	if atts is None:
-		atts = []
-	o = etree.Element(name) if parent is None else etree.SubElement(parent, name)
-	for a in atts:
-		o.set(a[0], a[1])
-
-	return o
-
-
-def make_element_ET(name: str, parent: ET.Element=None, atts: list=[]): # -> ET.Element:
+def make_element(name: str, parent: ET.Element=None, atts: list=[]): # -> ET.Element:
 	"""
 	Convenience method for creating an ET.Element or ET.SubElement object with a one-liner. 
 	Useful because, in the conventional way, any attributes that contain a dot in their 
@@ -125,7 +99,7 @@ def make_element_ET(name: str, parent: ET.Element=None, atts: list=[]): # -> ET.
 
 
 # Main functions -->
-def handle_encodingDesc(encodingDesc: etree._Element, ns: dict, args: argparse.Namespace) -> None:
+def handle_encodingDesc(encodingDesc: ET.Element, ns: dict, args: argparse.Namespace): # -> None:
 	"""
 	Basic structure of <encodingDesc>:
 
@@ -141,41 +115,39 @@ def handle_encodingDesc(encodingDesc: etree._Element, ns: dict, args: argparse.N
 	</encodingDesc>
 	"""
 
+	# Handle appInfo
+	appInfo = encodingDesc.find('.//mei:appInfo', ns)
 	# Make new <application>
 	application = make_element(f'{URI_MEI}application', 
 						 	   atts=[(XML_ID_KEY, add_unique_id('a', XML_IDS)[-1]),
 							   		 ('isodate', get_isodate()), 
 							   		 ('version', args.version)]
 							  )
-	etree.SubElement(application, f'{URI_MEI}name', 
+	ET.SubElement(application, f'{URI_MEI}name', 
 				  **{f'{XML_ID_KEY}': add_unique_id('n', XML_IDS)[-1]}
-				 ).text = TOOL_NAME
-	etree.SubElement(application, f'{URI_MEI}p', 
+				 ).text = 'abtab -- transcriber'
+	ET.SubElement(application, f'{URI_MEI}p', 
 				  **{f'{XML_ID_KEY}': add_unique_id('p', XML_IDS)[-1]}
 				 ).text = f'Input file: {args.file}'
-	etree.SubElement(application, f'{URI_MEI}p', 
+	ET.SubElement(application, f'{URI_MEI}p', 
 				  **{f'{XML_ID_KEY}': add_unique_id('p', XML_IDS)[-1]}
 				 ).text = f'Output file: {os.path.splitext(args.file)[0]}-dipl{MEI}'
-	
-	# Get or create <appInfo>
-	appInfo = encodingDesc.find('.//mei:appInfo', ns)
+	# If there is no <appInfo>: create one
 	if appInfo is None:
-		appInfo = etree.SubElement(encodingDesc, f'{URI_MEI}appInfo',
+		appInfo = ET.SubElement(encodingDesc, f'{URI_MEI}appInfo',
 								**{f'{XML_ID_KEY}': add_unique_id('ai', XML_IDS)[-1]}
 				 			   )
-#	# Else: remove any existing abtab -- transcriber <application>s
-#	else:
-#		if overwrite:
-#			for a in appInfo.findall('.//mei:application', ns):
-#				name = a.find('.//mei:name', ns)
-#				if name is not None and name.text and name.text == TOOL_NAME:
-#					appInfo.remove(a)
-	
+	# Else: remove any existing abtab <application>s
+	else:
+		for a in appInfo.findall('.//mei:application', ns):
+			name = a.find('.//mei:name', ns)
+			if name is not None and name.text and name.text.startswith('abtab'):
+				appInfo.remove(a)
 	# Add <application> 			
 	appInfo.append(application)
 
 
-def handle_scoreDef(scoreDef: etree._Element, ns: dict, args: argparse.Namespace): # -> None:
+def handle_scoreDef(scoreDef: ET.Element, ns: dict, args: argparse.Namespace): # -> None:
 	"""
 	Basic structure of <scoreDef>:
 
@@ -240,7 +212,7 @@ def handle_scoreDef(scoreDef: etree._Element, ns: dict, args: argparse.Namespace
 			tab_tuning.clear()
 			tab_tuning.set(XML_ID_KEY, add_unique_id('t', XML_IDS)[-1])
 			for i, (pitch, octv) in enumerate(TUNINGS[TUNING]):
-				course = etree.SubElement(tab_tuning, f'{URI_MEI}course',
+				course = ET.SubElement(tab_tuning, f'{URI_MEI}course',
 								   	   **{f'{XML_ID_KEY}': add_unique_id('c', XML_IDS)[-1]},
 								   	   n=str(i + 1),
 								       pname=pitch[0],
@@ -252,7 +224,7 @@ def handle_scoreDef(scoreDef: etree._Element, ns: dict, args: argparse.Namespace
 		staffGrp.remove(tab_staffDef)
 
 	# 2. Notehead <staffGrp>: create and set as first element in <staffGrp>
-	nh_staffGrp = etree.Element(f'{URI_MEI}staffGrp', 
+	nh_staffGrp = ET.Element(f'{URI_MEI}staffGrp', 
 							 **{f'{XML_ID_KEY}': add_unique_id('sg', XML_IDS)[-1]})
 	if args.score == DOUBLE:
 		nh_staffGrp.set('symbol', 'bracket')
@@ -260,14 +232,13 @@ def handle_scoreDef(scoreDef: etree._Element, ns: dict, args: argparse.Namespace
 	staffGrp.insert(0, nh_staffGrp)
 	# Add <staffDef>(s)
 	for i in [1] if args.score == SINGLE else [1, 2]:
-		nh_staffDef = etree.SubElement(nh_staffGrp, f'{URI_MEI}staffDef',
+		nh_staffDef = ET.SubElement(nh_staffGrp, f'{URI_MEI}staffDef',
 									**{f'{XML_ID_KEY}': add_unique_id('sd', XML_IDS)[-1]},
 									n=str(i),
-									lines='5',
-									notationtype='tab.staff-like'
+									lines='5'
 								   )
 		if i == 1:
-			nh_staffDef.set('dir.dist', '4') # TODO still needed without <dir>s?
+			nh_staffDef.set('dir.dist', '4')
 		# Add <clef>
 		# <clef> is only used in first staffDef, not in those for any subsequent <section>s
 		if is_first_scoreDef:
@@ -281,7 +252,7 @@ def handle_scoreDef(scoreDef: etree._Element, ns: dict, args: argparse.Namespace
 										  ('dis.place', 'below')]
 								  	)
 			else:
-				clef = etree.SubElement(nh_staffDef, f'{URI_MEI}clef', 
+				clef = ET.SubElement(nh_staffDef, f'{URI_MEI}clef', 
 									 **{f'{XML_ID_KEY}': add_unique_id('c', XML_IDS)[-1]},
 									 shape='G' if i==1 else 'F',
 									 line='2' if i==1 else '4'
@@ -291,7 +262,7 @@ def handle_scoreDef(scoreDef: etree._Element, ns: dict, args: argparse.Namespace
 		# NB Theoretically, the <section> could be in a different key -- but currently a single key 
 		#    is assumed for the whole piece
 		if is_first_scoreDef:
-			keySig = etree.SubElement(nh_staffDef, f'{URI_MEI}keySig',
+			keySig = ET.SubElement(nh_staffDef, f'{URI_MEI}keySig',
 								   **{f'{XML_ID_KEY}': add_unique_id('ks', XML_IDS)[-1]},
 								   sig=_get_MEI_keysig(KEY),
 								   mode='minor' if args.mode == MINOR else 'major'
@@ -600,7 +571,7 @@ def handle_section_NEW(section: ET.Element, ns: dict, args: argparse.Namespace):
 	return (section, notes_unspelled_by_ID)
 
 
-def handle_section(section: etree._Element, ns: dict, args: argparse.Namespace): # -> tuple:
+def handle_section(section: ET.Element, ns: dict, args: argparse.Namespace): # -> tuple:
 	"""
 	Basic structure of <section>:
 
@@ -634,15 +605,14 @@ def handle_section(section: etree._Element, ns: dict, args: argparse.Namespace):
 
 	tab_notes_by_ID = {}
 	tabGrps_by_ID = {}
-#	notes_unspelled_by_ID = []
-	notes_unspelled_by_ID = {}
+	notes_unspelled_by_ID = []
 	regular_elements = [f'{URI_MEI}{e}' for e in ['measure', 'staff', 'layer', 'beam', 'tabGrp', 'tabDurSym', 'note', 'rest']]
 	# Markup elements used only in diplomatic transcriptions of E-LAUTE project:
 	markup_elements = [f'{URI_MEI}{e}' for e in (MARKUP_ELEMENTS + ['sic'])]
 	tab_elements = [f'{URI_MEI}{e}' for e in ['tabGrp', 'tabDurSym', 'note', 'rest']]
 
-#x	# Unwrap all markup elements
-#x	unwrap_markup_elements(section, markup_elements)
+	# Unwrap all markup elements
+	unwrap_markup_elements(section, markup_elements)
 
 	for measure in section.iter(f'{URI_MEI}measure'):
 		# 1. Collect any non-regular elements in <measure> and remove them from it
@@ -673,345 +643,227 @@ def handle_section(section: etree._Element, ns: dict, args: argparse.Namespace):
 
 		# b. Notehead <staff>s 
 		# Add <staff>s to <measure>
-#		nh_staff_1 = etree.Element(f'{URI_MEI}staff', 
-#								**{f'{XML_ID_KEY}': add_unique_id('s', XML_IDS)[-1]},
-#								n='1')
-#		nh_staff_2 = etree.Element(f'{URI_MEI}staff', 
-#								**{f'{XML_ID_KEY}': add_unique_id('s', XML_IDS)[-1]},
-#								n='2')
-#		measure.insert(0, nh_staff_1)
-#		if args.score == DOUBLE:
-#			measure.insert(1, nh_staff_2)
-
-#		# Add <layer>s to <staff>s
-#		nh_layer_1 = etree.SubElement(nh_staff_1, f'{URI_MEI}layer', 
-#								   **{f'{XML_ID_KEY}': add_unique_id('l', XML_IDS)[-1]},
-#								   n='1')
-#		nh_layer_2 = etree.SubElement(nh_staff_2, f'{URI_MEI}layer', 
-#								   **{f'{XML_ID_KEY}': add_unique_id('l', XML_IDS)[-1]},
-#								   n='1')
-
-		nh_staff_new = copy.deepcopy(tab_staff)
-		nh_staff_new.set('n', str(1))
-
-		
-#		pretty_print(nh_staff_new)
-
-#		to_remove = []
-#		to_replace = []
-		# First pass: handle <note>s and <rest>s
-		# NB list() makes it safe to modify (replace/remove) during iteration
-		for elem in list(nh_staff_new.iter()):
-			xml_id = elem.get(XML_ID_KEY)
-
-			# Skip comments
-			if isinstance(elem, etree._Comment):
-				continue
-
-			# Handle <note>
-			if elem.tag == f'{URI_MEI}note':
-				# Calculate MIDI pitch
-				try:
-					midi_pitch = _get_midi_pitch(int(elem.get('tab.course')), 
-												 int(elem.get('tab.fret')), 
-												 TUNING
-												)
-				except TypeError:
-					midi_pitch = -1
-#					raise Exception(f"Element {elem.tag} with attributes\
-#									{elem.attrib} is either missing tab.course or tab.fret")
-
-				# Make new <note>
-				note = make_element(f'{URI_MEI}note', 
-#									parent=elem.getparent(), 
-									atts=[(XML_ID_KEY, xml_id),
-										  ('pname', ''),
-										  ('oct', str(_get_octave(midi_pitch)))] if midi_pitch != -1 
-										  else [(XML_ID_KEY, xml_id), 
-												('visible', 'false')]
-								   )
-#				# Add to list
-				notes_unspelled_by_ID[xml_id] = (measure.get('n'), midi_pitch)
-#				notes_unspelled_by_ID.append([xml_id, measure.get('n'), midi_pitch])
-#				to_replace.append((elem, note))
-				# Replace
-				elem.getparent().replace(elem, note)
-
-			# Handle <rest>. Possibilities
-			# 1. <tabGrp> containing <tabDurSym/> + <rest> (rhythm-flag looking or rest-looking): explicit
-			#    WAS <space> with <dir>
-			#    NOW <tabGrp> containing <tabDurSym/> ==> REMOVE <rest>  
-			# 2. a. <tabGrp> containing <rest> (rhythm-flag looking) (~= 3.): implicit
-			#    WAS <space> with <dir>
-			#    NOW <tabGrp> containing <rest> (rhythm-flag looking) ==> NO ACTION
-			#    b. <tabGrp> containing <rest> (rest-looking): explicit
-			#    WAS <space>
-			#    NOW <space> ==> REPLACE <tabGrp> WITH <space> 
-			# 3. <tabGrp> containing <tabDurSym/> (above or inside the system): implicit
-			#    WAS <space> with <dir>
-			#    NOW <tabGrp> containing <tabDurSym/> ==> NO ACTION
-			elif elem.tag == f'{URI_MEI}tabGrp' and elem.find(f'.//{URI_MEI}note') is None:
-				dur = elem.get('dur')
-				dots = elem.get('dots')
-				flag = elem.find('mei:tabDurSym', ns)
-				rest = elem.find('mei:rest', ns)
-
-				rest_case_1 = flag != None and rest != None
-				rest_case_2a = flag == None and rest != None and rest.get('glyph.name') in SMUFL_LUTE_DURS.values()
-				rest_case_2b = flag == None and rest != None and rest.get('glyph.name') not in SMUFL_LUTE_DURS.values()
-				rest_case_3 = flag != None and rest == None and len(elem) == 1
-				if rest_case_1:
-#					to_remove.append(rest)
-					# Remove
-					rest.getparent().remove(rest)
-				if rest_case_2b:
-					# Make <space>
-					space_1 = make_element(f'{URI_MEI}space', 
-#										   parent=elem.getparent(),
-										   atts=[(XML_ID_KEY, xml_id),
-												 ('dur', dur)] if dots == None
-												 else [(XML_ID_KEY, xml_id_space_1),
-													   ('dur', dur), ('dots', dots)]
-										  )
-					# Replace
-					elem.getparent().replace(elem, space_1)
-#					to_replace.append((elem, space_1))
-
-#		# Handle any rest_case_1 and rest_case_2b
-#		for old in to_remove:
-#			old.getparent().remove(old)
-#		for old, new in to_replace:
-#			old.getparent().replace(old, new)
-
-		# Second pass: modify xml:ids
-		for elem in list(nh_staff_new.iter()):
-			# Skip comments
-			if isinstance(elem, etree._Comment):
-				continue
-
-			name = etree.QName(elem).localname
-			xml_id_old = elem.get(XML_ID_KEY)
-			xml_id_new = add_unique_id(name[0], XML_IDS)[-1]
-			elem.set(XML_ID_KEY, xml_id_new)
-			if elem.tag == f'{URI_MEI}note':
-#				old_note_data = notes_unspelled_by_ID[xml_id_old]
-				notes_unspelled_by_ID[xml_id_new] = notes_unspelled_by_ID.pop(xml_id_old) # gets value of old key; removes old key from dict
-#				notes_unspelled_by_ID.append([xml_id, measure.get('n'), midi_pitch])
-
-#		pretty_print(nh_staff_new)
-		measure.insert(0, nh_staff_new)
+		nh_staff_1 = ET.Element(f'{URI_MEI}staff', 
+								**{f'{XML_ID_KEY}': add_unique_id('s', XML_IDS)[-1]},
+								n='1')
+		nh_staff_2 = ET.Element(f'{URI_MEI}staff', 
+								**{f'{XML_ID_KEY}': add_unique_id('s', XML_IDS)[-1]},
+								n='2')
+		measure.insert(0, nh_staff_1)
 		if args.score == DOUBLE:
 			measure.insert(1, nh_staff_2)
-#		pretty_print(measure)
 
-		old_stuff = False
-		if old_stuff:
-			# Add <rest>s and <chord>s and/or<space>s to <layer>s; collect <dir>s
-			rhythm_symbol_dirs = []
-			for tabGrp in tab_layer.iter(f'{URI_MEI}tabGrp'):
-				dur = tabGrp.get('dur')
-				dots = tabGrp.get('dots')
-				flag = tabGrp.find('mei:tabDurSym', ns)
-				rest = tabGrp.find('mei:rest', ns)
-				space = tabGrp.find('mei:space', ns)
-				xml_id_tabGrp = tabGrp.get(XML_ID_KEY)
+		# Add <layer>s to <staff>s
+		nh_layer_1 = ET.SubElement(nh_staff_1, f'{URI_MEI}layer', 
+								   **{f'{XML_ID_KEY}': add_unique_id('l', XML_IDS)[-1]},
+								   n='1')
+		nh_layer_2 = ET.SubElement(nh_staff_2, f'{URI_MEI}layer', 
+								   **{f'{XML_ID_KEY}': add_unique_id('l', XML_IDS)[-1]},
+								   n='1')
 
-				# Add <rests> (i.e., add <space>s). Possibilities
-				# 1. <tabGrp> containing <tabDurSym/> + <rest> (rhythm-flag looking or rest-looking): explicit
-				#    --> <space> with <dir>
-				# 2. a. <tabGrp> containing <rest> (rhythm-flag looking) (~= 3.): implicit
-				#    --> <space> with <dir>
-				#    b. <tabGrp> containing <rest> (rest-looking): explicit
-				#    --> <space>  
-				# 3. <tabGrp> containing <tabDurSym/> (above or inside the system): implicit
-				#    --> <space> with <dir>
-				# NB Old approach: create xml_id_rest_1 (_2), rest_1 (_2), and rests instead of 
-				#    xml_id_space_1 (_2), space_1 (_2), and spaces
-				rest_case_1 = flag != None and rest != None
-				rest_case_2a = flag == None and rest != None and rest.get('glyph.name') in SMUFL_LUTE_DURS.values()
-				rest_case_2b = flag == None and rest != None and rest.get('glyph.name') not in SMUFL_LUTE_DURS.values()
-				rest_case_3 = flag != None and rest == None and len(tabGrp) == 1
-				if rest_case_1 or rest_case_2a or rest_case_2b or rest_case_3:
-					xml_id_space_1 = add_unique_id('s', XML_IDS)[-1]
-					xml_id_space_2 = add_unique_id('s', XML_IDS)[-1]
+		# Add <rest>s and <chord>s and/or<space>s to <layer>s; collect <dir>s
+		rhythm_symbol_dirs = []
+		for tabGrp in tab_layer.iter(f'{URI_MEI}tabGrp'):
+			dur = tabGrp.get('dur')
+			dots = tabGrp.get('dots')
+			flag = tabGrp.find('mei:tabDurSym', ns)
+			rest = tabGrp.find('mei:rest', ns)
+			space = tabGrp.find('mei:space', ns)
+			xml_id_tabGrp = tabGrp.get(XML_ID_KEY)
 
-					# 1. Add <space>s to <layer>s
-					space_1 = make_element(f'{URI_MEI}space', 
-										  parent=nh_layer_1, 
-										  atts=[(XML_ID_KEY, xml_id_space_1),
-											 	('dur', dur)]
-										 )
-					space_2 = make_element(f'{URI_MEI}space', 
-										  parent=nh_layer_2, 
-										  atts=[(XML_ID_KEY, xml_id_space_2),
-											 	('dur', dur)]
-										 )
+			# Add <rests> (i.e., add <space>s). Possibilities
+			# 1. <tabGrp> containing <tabDurSym/> + <rest> (rhythm-flag looking or rest-looking): explicit
+			#    --> <space> with <dir>
+			# 2. a. <tabGrp> containing <rest> (rhythm-flag looking) (~= 3.): implicit
+			#    --> <space> with <dir>
+			#    b. <tabGrp> containing <rest> (rest-looking): explicit
+			#    --> <space>  
+			# 3. <tabGrp> containing <tabDurSym/> (above or inside the system): implicit
+			#    --> <space> with <dir>
+			# NB Old approach: create xml_id_rest_1 (_2), rest_1 (_2), and rests instead of 
+			#    xml_id_space_1 (_2), space_1 (_2), and spaces
+			rest_case_1 = flag != None and rest != None
+			rest_case_2a = flag == None and rest != None and rest.get('glyph.name') in SMUFL_LUTE_DURS.values()
+			rest_case_2b = flag == None and rest != None and rest.get('glyph.name') not in SMUFL_LUTE_DURS.values()
+			rest_case_3 = flag != None and rest == None and len(tabGrp) == 1
+			if rest_case_1 or rest_case_2a or rest_case_2b or rest_case_3:
+				xml_id_space_1 = add_unique_id('s', XML_IDS)[-1]
+				xml_id_space_2 = add_unique_id('s', XML_IDS)[-1]
 
-					# 2. Add <dir>
-					if not rest_case_2b:
-						rhythm_symbol_dirs.append(_make_rhythm_symbol_dir(xml_id_space_1, dur, dots, ns))
+				# 1. Add <space>s to <layer>s
+				space_1 = make_element(f'{URI_MEI}space', 
+									  parent=nh_layer_1, 
+									  atts=[(XML_ID_KEY, xml_id_space_1),
+										 	('dur', dur)]
+									 )
+				space_2 = make_element(f'{URI_MEI}space', 
+									  parent=nh_layer_2, 
+									  atts=[(XML_ID_KEY, xml_id_space_2),
+										 	('dur', dur)]
+									 )
 
-					# 3. Map tabGrp
-					spaces = (space_1, None) if args.score == SINGLE else (space_1, space_2)
-					tabGrps_by_ID[xml_id_tabGrp] = (tabGrp, spaces)
-					# Map tab <rest>
-					if rest != None:
-						tab_notes_by_ID[rest.get(XML_ID_KEY)] = (rest, spaces)
+				# 2. Add <dir>
+				if not rest_case_2b:
+					rhythm_symbol_dirs.append(_make_rhythm_symbol_dir(xml_id_space_1, dur, dots, ns))
 
-				# Add <chord>s and/or <space>s	
-				else:
-					# 0. Create <chord>s and add <note>s to them
-					# NB A <chord> cannot be added directly to the parent <layer> upon creation 
-					#    because it may remain empty, and in that case must be replaced by a <space>
-					xml_id_chord_1 = add_unique_id('c', XML_IDS)[-1]
-					xml_id_chord_2 = add_unique_id('c', XML_IDS)[-1]
-					chord_1 = make_element(f'{URI_MEI}chord', 
-										   atts=[(XML_ID_KEY, xml_id_chord_1),
-											     ('dur', dur), 
-											   	 ('stem.visible', 'false')]
-										  )
-					chord_2 = make_element(f'{URI_MEI}chord', 
-										   atts=[(XML_ID_KEY, xml_id_chord_2),
-											   	 ('dur', dur), 
-											   	 ('stem.visible', 'false')]
-										  )
-					for element in tabGrp:
-						if element != flag and element != rest and element != space:
-							try:
-								midi_pitch = _get_midi_pitch(int(element.get('tab.course')), 
-														 	 int(element.get('tab.fret')), 
-														 	 TUNING)
-							except TypeError:
-								midi_pitch = -1
-#								raise Exception(f"Element {element.tag} with attributes\
-#												{element.attrib} is either missing tab.course or tab.fret")
+				# 3. Map tabGrp
+				spaces = (space_1, None) if args.score == SINGLE else (space_1, space_2)
+				tabGrps_by_ID[xml_id_tabGrp] = (tabGrp, spaces)
+				# Map tab <rest>
+				if rest != None:
+					tab_notes_by_ID[rest.get(XML_ID_KEY)] = (rest, spaces)
 
-							xml_id_note = add_unique_id('n', XML_IDS)[-1]
-							nh_note = make_element(f'{URI_MEI}note', 
-												   parent=chord_1 if args.score == SINGLE else\
-													      (chord_1 if midi_pitch >= 60 else chord_2), 
-												   atts=[(XML_ID_KEY, xml_id_note),
-													  	 ('pname', None),
-													     ('oct', str(_get_octave(midi_pitch))),
-													     ('head.fill', 'solid')] if midi_pitch != -1 
-													     else [(XML_ID_KEY, xml_id_note), 
-															   ('visible', 'false')]
-												  )
-							# Map tab <note>
-							tab_notes_by_ID[element.get(XML_ID_KEY)] = (element, nh_note)
-							notes_unspelled_by_ID.append([xml_id_note, measure.get('n'), midi_pitch])
+			# Add <chord>s and/or <space>s	
+			else:
+				# 0. Create <chord>s and add <note>s to them
+				# NB A <chord> cannot be added directly to the parent <layer> upon creation 
+				#    because it may remain empty, and in that case must be replaced by a <space>
+				xml_id_chord_1 = add_unique_id('c', XML_IDS)[-1]
+				xml_id_chord_2 = add_unique_id('c', XML_IDS)[-1]
+				chord_1 = make_element(f'{URI_MEI}chord', 
+									   atts=[(XML_ID_KEY, xml_id_chord_1),
+										     ('dur', dur), 
+										   	 ('stem.visible', 'false')]
+									  )
+				chord_2 = make_element(f'{URI_MEI}chord', 
+									   atts=[(XML_ID_KEY, xml_id_chord_2),
+										   	 ('dur', dur), 
+										   	 ('stem.visible', 'false')]
+									  )
+				for element in tabGrp:
+					if element != flag and element != rest and element != space:
+						try:
+							midi_pitch = _get_midi_pitch(int(element.get('tab.course')), 
+													 	 int(element.get('tab.fret')), 
+													 	 TUNING)
+						except TypeError:
+							midi_pitch = -1
+#							raise Exception(f"Element {element.tag} with attributes\
+#											{element.attrib} is either missing tab.course or tab.fret")
 
-					# 1. Add <chord>s and/or <space>s to <layer>s
-					xml_id_space = add_unique_id('s', XML_IDS)[-1]
-					nh_space = make_element(f'{URI_MEI}space', 
-											atts=[(XML_ID_KEY, xml_id_space),
-												  ('dur', dur)]
-										   )
-					nh_layer_1.append(chord_1 if len(chord_1) > 0 else nh_space)
-					if args.score == DOUBLE:
-						nh_layer_2.append(chord_2 if len(chord_2) > 0 else nh_space)
-					xml_id_reference = xml_id_chord_1 if len(chord_1) > 0 else xml_id_space
+						xml_id_note = add_unique_id('n', XML_IDS)[-1]
+						nh_note = make_element(f'{URI_MEI}note', 
+											   parent=chord_1 if args.score == SINGLE else\
+												      (chord_1 if midi_pitch >= 60 else chord_2), 
+											   atts=[(XML_ID_KEY, xml_id_note),
+												  	 ('pname', None),
+												     ('oct', str(_get_octave(midi_pitch))),
+												     ('head.fill', 'solid')] if midi_pitch != -1 
+												     else [(XML_ID_KEY, xml_id_note), 
+														   ('visible', 'false')]
+											  )
+						# Map tab <note>
+						tab_notes_by_ID[element.get(XML_ID_KEY)] = (element, nh_note)
+						notes_unspelled_by_ID.append([xml_id_note, measure.get('n'), midi_pitch])
 
-					# 2. Add <dir>
-					if flag != None:
-						rhythm_symbol_dirs.append(_make_rhythm_symbol_dir(xml_id_reference, dur, dots, ns))
+				# 1. Add <chord>s and/or <space>s to <layer>s
+				xml_id_space = add_unique_id('s', XML_IDS)[-1]
+				nh_space = make_element(f'{URI_MEI}space', 
+										atts=[(XML_ID_KEY, xml_id_space),
+											  ('dur', dur)]
+									   )
+				nh_layer_1.append(chord_1 if len(chord_1) > 0 else nh_space)
+				if args.score == DOUBLE:
+					nh_layer_2.append(chord_2 if len(chord_2) > 0 else nh_space)
+				xml_id_reference = xml_id_chord_1 if len(chord_1) > 0 else xml_id_space
 
-					# 3. Map tabGrp
-					chords = (chord_1, None) if args.score == SINGLE\
-											 else (chord_1 if len(chord_1) > 0 else nh_space,\
-											 	   chord_2 if len(chord_2) > 0 else nh_space)
-					tabGrps_by_ID[xml_id_tabGrp] = (tabGrp, chords)
+				# 2. Add <dir>
+				if flag != None:
+					rhythm_symbol_dirs.append(_make_rhythm_symbol_dir(xml_id_reference, dur, dots, ns))
 
-			# 3. Handle non-regular <measure> elements. These are elements that require <chord>, 
-			#    <rest>, or <space> reference xml:ids, and must therefore be handled after all 
-			#    regular <staff> elements are handled, and those reference IDs all exist
-			curr_non_regular_elements = []
-			for c in elems_removed_from_measure:
-				# Fermata: needs <dir> (CMN) and <fermata> (= c; tab)
-				if c.tag == f'{URI_MEI}fermata':
-					# Add CMN <dir> (to rhythm_symbol_dirs)
-					xml_id_tabGrp = c.get('startid').lstrip('#') # start after '#'
-					xml_id_upper_chord = tabGrps_by_ID[xml_id_tabGrp][1][0].get(XML_ID_KEY)
-					rhythm_symbol_dirs.append(_make_rhythm_symbol_dir(xml_id_upper_chord, 'f', None, ns))
+				# 3. Map tabGrp
+				chords = (chord_1, None) if args.score == SINGLE\
+										 else (chord_1 if len(chord_1) > 0 else nh_space,\
+										 	   chord_2 if len(chord_2) > 0 else nh_space)
+				tabGrps_by_ID[xml_id_tabGrp] = (tabGrp, chords)
 
-					# Add c to list	
-					if args.tablature == YES:
-						curr_non_regular_elements.append(c)
-				# Annotation: needs <annot> (CMN) and <annot> (= c; tab) 
-				elif c.tag == f'{URI_MEI}annot':
-					xml_id_referred = c.get('plist').lstrip('#') # start after '#'
-					elem_referred = ORIG_XML_IDS.get(xml_id_referred)
+		# 3. Handle non-regular <measure> elements. These are elements that require <chord>, 
+		#    <rest>, or <space> reference xml:ids, and must therefore be handled after all 
+		#    regular <staff> elements are handled, and those reference IDs all exist
+		curr_non_regular_elements = []
+		for c in elems_removed_from_measure:
+			# Fermata: needs <dir> (CMN) and <fermata> (= c; tab)
+			if c.tag == f'{URI_MEI}fermata':
+				# Add CMN <dir> (to rhythm_symbol_dirs)
+				xml_id_tabGrp = c.get('startid').lstrip('#') # start after '#'
+				xml_id_upper_chord = tabGrps_by_ID[xml_id_tabGrp][1][0].get(XML_ID_KEY)
+				rhythm_symbol_dirs.append(_make_rhythm_symbol_dir(xml_id_upper_chord, 'f', None, ns))
 
-					# If <annot> refers to a tab element
-					# - add CMN <annot> to list
-					# - if tablature is included, also add original <annot> (c) to list
-					if elem_referred.tag in tab_elements:
-						if elem_referred.tag == f'{URI_MEI}note' or elem_referred.tag == f'{URI_MEI}rest':
-							xml_id_tab_elem = tab_notes_by_ID[xml_id_referred][1].get(XML_ID_KEY)
-						elif elem_referred.tag == f'{URI_MEI}tabGrp':
-							xml_id_tab_elem = tabGrps_by_ID[xml_id_tabGrp][1][0].get(XML_ID_KEY)
-						elif elem_referred.tag == f'{URI_MEI}tabDurSym':
-							pass # TODO refer to <dir> that represents <tabDurSym>
-						annot = copy.deepcopy(c)
-						annot.set('plist', '#' + xml_id_tab_elem)
-						annot.set(XML_ID_KEY, add_unique_id('a', XML_IDS)[-1])
-						curr_non_regular_elements.append(annot)
-						if args.tablature == YES:
-							curr_non_regular_elements.append(c)
-					# If <annot> refers to a non-tab element
-					# - add original <annot> (c) to list
-					else:
-						curr_non_regular_elements.append(c)
-				# Fingering: needs <fing> (= c; tab)
-				elif c.tag == f'{URI_MEI}fing':
-					# Add c to list
-					if args.tablature == YES:
-						curr_non_regular_elements.append(c)
-				# (Text) directive: needs <dir> (CMN) and <dir> (= c; tab)
-				elif c.tag == f'{URI_MEI}dir':
-					# Add CMN <dir> to list
-					direc = copy.deepcopy(c)
-					for e in direc.iter():
-						e.set(XML_ID_KEY, add_unique_id(remove_namespace_from_tag(e.tag)[0], XML_IDS)[-1])
-						if 'staff' in e.attrib:
-							e.set('staff', '1') # probably not needed but doesn't hurt
-						if 'startid' in e.attrib:
-							xml_id_tabGrp = e.get('startid').lstrip('#') # start after '#'
-							xml_id_upper_chord = tabGrps_by_ID[xml_id_tabGrp][1][0].get(XML_ID_KEY)
-							e.set('startid', '#' + xml_id_upper_chord)
-						if 'fontsize' in e.attrib:
-							e.set('fontsize', 'small')
-					curr_non_regular_elements.append(direc)
-
-					# Add c to list	
-					if args.tablature == YES:
-						c.set('staff', '3' if args.score == DOUBLE else '2')
-						curr_non_regular_elements.append(c)
-				# Other
-				else:
-					# Add c to list
+				# Add c to list	
+				if args.tablature == YES:
 					curr_non_regular_elements.append(c)
+			# Annotation: needs <annot> (CMN) and <annot> (= c; tab) 
+			elif c.tag == f'{URI_MEI}annot':
+				xml_id_referred = c.get('plist').lstrip('#') # start after '#'
+				elem_referred = ORIG_XML_IDS.get(xml_id_referred)
 
-			# 4. Add non-regular <measure> elements to completed <measure> in fixed sequence
-			fermatas = [e for e in curr_non_regular_elements if e.tag == f'{URI_MEI}fermata']
-			annots = [e for e in curr_non_regular_elements if e.tag == f'{URI_MEI}annot']
-			fings = [e for e in curr_non_regular_elements if e.tag == f'{URI_MEI}fing']
-			direcs = [e for e in curr_non_regular_elements if e.tag == f'{URI_MEI}dir']
-			for e in rhythm_symbol_dirs + fermatas + annots + fings + direcs:
-				measure.append(e)
+				# If <annot> refers to a tab element
+				# - add CMN <annot> to list
+				# - if tablature is included, also add original <annot> (c) to list
+				if elem_referred.tag in tab_elements:
+					if elem_referred.tag == f'{URI_MEI}note' or elem_referred.tag == f'{URI_MEI}rest':
+						xml_id_tab_elem = tab_notes_by_ID[xml_id_referred][1].get(XML_ID_KEY)
+					elif elem_referred.tag == f'{URI_MEI}tabGrp':
+						xml_id_tab_elem = tabGrps_by_ID[xml_id_tabGrp][1][0].get(XML_ID_KEY)
+					elif elem_referred.tag == f'{URI_MEI}tabDurSym':
+						pass # TODO refer to <dir> that represents <tabDurSym>
+					annot = copy.deepcopy(c)
+					annot.set('plist', '#' + xml_id_tab_elem)
+					annot.set(XML_ID_KEY, add_unique_id('a', XML_IDS)[-1])
+					curr_non_regular_elements.append(annot)
+					if args.tablature == YES:
+						curr_non_regular_elements.append(c)
+				# If <annot> refers to a non-tab element
+				# - add original <annot> (c) to list
+				else:
+					curr_non_regular_elements.append(c)
+			# Fingering: needs <fing> (= c; tab)
+			elif c.tag == f'{URI_MEI}fing':
+				# Add c to list
+				if args.tablature == YES:
+					curr_non_regular_elements.append(c)
+			# (Text) directive: needs <dir> (CMN) and <dir> (= c; tab)
+			elif c.tag == f'{URI_MEI}dir':
+				# Add CMN <dir> to list
+				direc = copy.deepcopy(c)
+				for e in direc.iter():
+					e.set(XML_ID_KEY, add_unique_id(remove_namespace_from_tag(e.tag)[0], XML_IDS)[-1])
+					if 'staff' in e.attrib:
+						e.set('staff', '1') # probably not needed but doesn't hurt
+					if 'startid' in e.attrib:
+						xml_id_tabGrp = e.get('startid').lstrip('#') # start after '#'
+						xml_id_upper_chord = tabGrps_by_ID[xml_id_tabGrp][1][0].get(XML_ID_KEY)
+						e.set('startid', '#' + xml_id_upper_chord)
+					if 'fontsize' in e.attrib:
+						e.set('fontsize', 'small')
+				curr_non_regular_elements.append(direc)
 
-			if VERBOSE:
-				for elem in measure:
-					print(elem.tag, elem.attrib)
-					for e in elem:
-						print(e.tag, e.attrib)
-						for ee in e:
-							print(ee.tag, ee.attrib)
-							for eee in ee:
-								print(eee.tag, eee.attrib)
+				# Add c to list	
+				if args.tablature == YES:
+					c.set('staff', '3' if args.score == DOUBLE else '2')
+					curr_non_regular_elements.append(c)
+			# Other
+			else:
+				# Add c to list
+				curr_non_regular_elements.append(c)
 
-	# Convert notes_unspelled_by_ID to a list						
-	notes_unspelled_by_ID = [(xml_id, meas, midip) for xml_id, (meas, midip) in notes_unspelled_by_ID.items()]						
+		# 4. Add non-regular <measure> elements to completed <measure> in fixed sequence
+		fermatas = [e for e in curr_non_regular_elements if e.tag == f'{URI_MEI}fermata']
+		annots = [e for e in curr_non_regular_elements if e.tag == f'{URI_MEI}annot']
+		fings = [e for e in curr_non_regular_elements if e.tag == f'{URI_MEI}fing']
+		direcs = [e for e in curr_non_regular_elements if e.tag == f'{URI_MEI}dir']
+		for e in rhythm_symbol_dirs + fermatas + annots + fings + direcs:
+			measure.append(e)
+
+		if VERBOSE:
+			for elem in measure:
+				print(elem.tag, elem.attrib)
+				for e in elem:
+					print(e.tag, e.attrib)
+					for ee in e:
+						print(ee.tag, ee.attrib)
+						for eee in ee:
+							print(eee.tag, eee.attrib)
 
 	return (section, notes_unspelled_by_ID)
 
@@ -1124,7 +976,7 @@ def transcribe(in_path: str, out_path: str, args: argparse.Namespace): # -> None
 	# 0. File processing
 	in_file = args.file
 	filename, ext = os.path.splitext(in_file) # in_file is already basename (see method call in transcriber.py)
-	out_file = filename + '-dipl-new' + MEI
+	out_file = filename + '-dipl' + MEI
 	# Get file contents as MEI string
 	if ext != MEI:
 		# As in abtab converter: provide three opts, always with their default vals, and no user opts
@@ -1143,52 +995,49 @@ def transcribe(in_path: str, out_path: str, args: argparse.Namespace): # -> None
 		version = file.read()
 	args.version = version
 
-	# for grabbing a single element, find() is the more natural choice
+	print(args.file)
+	dgdfg
 
-
-	# 1. Preliminaries
-	# a. Get root (<mei>) and tree
-	root = etree.fromstring(mei_str.encode('utf-8'))
-	tree = etree.ElementTree(root)	
-	# b. Get namespaces and URIs
-	ns = get_namespaces(root)
+	# 0. Preliminaries 
+	# a. Handle namespaces
+	ns = handle_namespaces(mei_str)
 	global URI_MEI
 	URI_MEI = f'{{{ns['mei']}}}'
 	global URI_XML
 	URI_XML = f'{{{ns['xml']}}}'
 	global XML_ID_KEY
 	XML_ID_KEY = f'{URI_XML}id'
-	# c. Get main MEI elements (<meiHead>, <music>), and <score>
+	# b. Get the tree, root (<mei>), main MEI elements (<meiHead>, <music>), and <score>
+	tree, root = parse_tree(mei_str)
 	meiHead, music = get_main_MEI_elements(root, ns)
 	score = music.find('.//mei:score', ns)
-	# d. Collect all xml:ids; map the original xml:ids
+	# c. Collect all xml:ids; map the original xml:ids
 	global XML_IDS
-	XML_IDS = collect_xml_ids(root, ns)
+	XML_IDS = collect_xml_ids(root, XML_ID_KEY)
 	global ORIG_XML_IDS
 	ORIG_XML_IDS = { # TODO keep?
 		elem.attrib[XML_ID_KEY]: elem for elem in root.iter() if XML_ID_KEY in elem.attrib
 	}
 
-	# 2. Handle <encodingDesc>
+	# 1. Handle <encodingDesc>
 	encodingDesc = meiHead.find('.//mei:encodingDesc', ns)
 	handle_encodingDesc(encodingDesc, ns, args)
 
-	# 3. Handle <scoreDef>s
+	# 2. Handle <scoreDef>s
 	scoreDefs = score.findall('.//mei:scoreDef', ns)
 	for scoreDef in scoreDefs:
 		handle_scoreDef(scoreDef, ns, args)
 
-	# 4. Handle <section>s
+	# 3. Handle <section>s
 	sections = score.findall('mei:section', ns)
 	for section in sections:
 		section, notes_unspelled_by_ID = handle_section(section, ns, args)
 		spell_pitch(section, notes_unspelled_by_ID, args)
 
-	# 5. Fix indentation
-	etree.indent(tree, space='\t')
-#	ET.indent(tree, space='\t', level=0)
+	# 4. Fix indentation
+	ET.indent(tree, space='\t', level=0)
 
-	# 6. Add processing instructions (<?xml> declaration and <?xml-model>  
+	# 5. Add processing instructions (<?xml> declaration and <?xml-model>  
 	# processing instructions), which are not included in root 
 	lines = mei_str.split('\n')
 	declaration = lines[0] + '\n'
@@ -1196,9 +1045,9 @@ def transcribe(in_path: str, out_path: str, args: argparse.Namespace): # -> None
 	for line in lines:
 		if line[1:].startswith('?xml-model'):
 			model_pi += line + '\n'
-	xml_str = etree.tostring(root, encoding='unicode')
+	xml_str = ET.tostring(root, encoding='unicode')
 	xml_str = f'{declaration}{model_pi}{xml_str}'
 	
-	# 7. Write to file
+	# 6. Write to file
 	with open(os.path.join(out_path, out_file), 'w', encoding='utf-8') as file:
 		file.write(xml_str)
