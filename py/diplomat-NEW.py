@@ -21,7 +21,8 @@ if lib_path not in sys.path:
 from py.constants import *
 from py.utils import (get_tuning, add_unique_id, remove_namespace_from_tag, get_namespaces,  
 					  get_main_MEI_elements, collect_xml_ids, unwrap_markup_elements,
-					  is_empty, remove_all_empty, print_all_elements, pretty_print, get_isodate)
+					  is_empty, remove_all_empty, remove_empty_markup, remove_empty_markup_ancestors,
+					  print_all_elements, pretty_print, get_isodate)
 
 SHIFT_INTERVALS = {D: -5, E: -3, F: -2, F6Eb: -2, G: 0, G6F: 0, A: 2, A6G: 2}
 SMUFL_LUTE_DURS = {'f': 'fermataAbove',
@@ -637,7 +638,9 @@ def handle_section(section: etree._Element, ns: dict, args: argparse.Namespace):
 #	notes_unspelled_by_ID = []
 	notes_unspelled_by_ID = {}
 #	regular_elements = [f'{URI_MEI}{e}' for e in ['measure', 'staff', 'layer', 'beam', 'tabGrp', 'tabDurSym', 'note', 'rest']]
-	regular_elements = [f'{URI_MEI}{e}' for e in ['beam', 'tabGrp', 'tabDurSym', 'note', 'rest', 'space']]
+	regular_elements = [f'{URI_MEI}{e}' for e in ['beam', 'tabGrp', 'tabDurSym', 'note', 'rest']] #, 'space']]
+	markup_elements = ([f'{URI_MEI}{e}' for e in ['abbr', 'add', 'choice', 'corr', 'cpMark', 'damage', 'del', 'expan',
+												  'metaMark', 'orig', 'reg', 'restore', 'sic', 'subst', 'supplied', 'unclear']])
 	# Markup elements used only in diplomatic transcriptions of E-LAUTE project:
 #	markup_elements = [f'{URI_MEI}{e}' for e in (MARKUP_ELEMENTS + ['sic'])]
 #	tab_elements = [f'{URI_MEI}{e}' for e in ['tabGrp', 'tabDurSym', 'note', 'rest']]
@@ -705,7 +708,12 @@ def handle_section(section: etree._Element, ns: dict, args: argparse.Namespace):
 
 		# First pass: handle <note>s and <rest>s (iterate over tab_staff; modify nh_staff_1 and _2)
 		# NB list() makes it safe to modify (replace/remove) during iteration
-		adapted_tabGrp_ids = [] 
+#		adapted_tabGrp_ids = []
+		# editorial contains all editorial elements in the <staff> with a direct child that 
+		# that may be removed when args.score == DOUBLE, i.e., a <note> or <tabDurSym>, 
+		# possibly leaving the editorial element empty
+		editorial = []
+
 		for elem in list(tab_staff.iter()):
 			xml_id = elem.get(XML_ID_KEY)
 
@@ -713,12 +721,19 @@ def handle_section(section: etree._Element, ns: dict, args: argparse.Namespace):
 			if isinstance(elem, etree._Comment):
 				continue
 
+			# Check if the element is a markup element that has a direct child 
+			# that is a <note>, or <tabDurSym>  
+			if elem.tag in markup_elements:
+				for child in elem:
+					if child.tag == f'{URI_MEI}note' or child.tag == f'{URI_MEI}tabDurSym':
+						editorial.append(xml_id)
+
 			# Handle <note>
 			if elem.tag == f'{URI_MEI}note':
-				# Add xml:id of <tabGrp> holding <note> to list
-				xml_id_tabGrp = elem.xpath(f'ancestor::mei:tabGrp', namespaces=ns)[0].get(XML_ID_KEY) 
-				if not xml_id_tabGrp in adapted_tabGrp_ids:
-					adapted_tabGrp_ids.append(xml_id_tabGrp)
+#				# Add xml:id of <tabGrp> holding <note> to list
+#				xml_id_tabGrp = elem.xpath(f'ancestor::mei:tabGrp', namespaces=ns)[0].get(XML_ID_KEY) 
+#				if not xml_id_tabGrp in adapted_tabGrp_ids:
+#					adapted_tabGrp_ids.append(xml_id_tabGrp)
 				course = elem.get('tab.course')
 				fret = elem.get('tab.fret')
 
@@ -770,57 +785,108 @@ def handle_section(section: etree._Element, ns: dict, args: argparse.Namespace):
 				notes_unspelled_by_ID[xml_id_note_new] = (measure.get('n'), midi_pitch)
 
 			# Handle <rest>. Possibilities
-			# 1. <tabGrp> containing <tabDurSym/> + <rest> (rhythm-flag looking or rest-looking): explicit
+			# 1. <tabGrp> containing <tabDurSym> + <rest> (rhythm-flag looking or rest-looking; this is determined by @type): explicit
 			#    WAS <space> with <dir>
-			#    NOW 1. <tabGrp> containing <tabDurSym/> ==> REMOVE <rest>
-			#        2. <space> ==> REPLACE <tabGrp> WITH <space>
+			#    NOW 1. <tabGrp> containing <tabDurSym> + <rest> ==> NO ACTION
+			#        2. empty <tabGrp>
 			# 2. a. <tabGrp> containing <rest> (rhythm-flag looking) (~= 3.): implicit
 			#    WAS <space> with <dir>
 			#    NOW 1. <tabGrp> containing <rest> (rhythm-flag looking) ==> NO ACTION
-			#        2. <space> ==> REPLACE <tabGrp> WITH <space>
+			#        2. empty <tabGrp>
 			#    b. <tabGrp> containing <rest> (rest-looking): explicit
 			#    WAS <space>
 			#    NOW 1. <space> ==> REPLACE <tabGrp> WITH <space>
 			#        2. <space> ==> REPLACE <tabGrp> WITH <space>
-			# 3. <tabGrp> containing <tabDurSym/> (above or inside the system): implicit
+			# 3. <tabGrp> containing <tabDurSym/> (above ~or inside~ the system): implicit
 			#    WAS <space> with <dir>
 			#    NOW 1. <tabGrp> containing <tabDurSym/> ==> NO ACTION
 			#        2. <space> ==> REPLACE <tabGrp> WITH <space>
-			elif elem.tag == f'{URI_MEI}tabGrp' and elem.find(f'.//{URI_MEI}note') is None:
-				# Add xml:id of <tabGrp> to list
-				xml_id_tabGrp = xml_id
-				if not xml_id_tabGrp in adapted_tabGrp_ids:
-					adapted_tabGrp_ids.append(xml_id_tabGrp)
-
+			
+			# Handle <tabGrp>s
+			elif elem.tag == f'{URI_MEI}tabGrp':
+				flag = elem.find('mei:tabDurSym', ns)
 				dur = elem.get('dur')
 				dots = elem.get('dots')
-				flag = elem.find('mei:tabDurSym', ns)
 				rest = elem.find('mei:rest', ns)
-				rest_case_1 = flag != None and rest != None
-				rest_case_2a = flag == None and rest != None and rest.get('glyph.name') in SMUFL_LUTE_DURS.values()
-				rest_case_2b = flag == None and rest != None and rest.get('glyph.name') not in SMUFL_LUTE_DURS.values()
-				rest_case_3 = flag != None and rest == None and len(elem) == 1
+  
+				# Handle <tabDurSym> 
+				if flag is not None: 
+					xml_id_flag = flag.get(XML_ID_KEY)
+					# Remove @tab.line from <tabDurSym> (nh_staff_1)
+					if 'tab.line' in flag.attrib:
+						flag_orig_1 = id_index_nh_staff_1[xml_id_flag]
+						flag_orig_1.attrib.pop('tab.line', None)
+					# Remove <tabDurSym> from <tabGrp> (nh_staff_2)
+					if args.score == DOUBLE:
+						flag_orig_2 = id_index_nh_staff_2[xml_id_flag]
+						flag_orig_2.getparent().remove(flag_orig_2)
 
-				# Make new <space> with old (= elem) xml:id
-				if args.score == DOUBLE or rest_case_2b:
-					space_new = make_element(f'{URI_MEI}space',
-											 atts=[(XML_ID_KEY, xml_id), ('dur', dur)] +
-												   ([('dots', dots)] if dots else [])
-											)
+				# Handle <rest>. Possibilities
+				# 1.    <tabGrp> containing <tabDurSym>
+				# 2. a. <tabGrp> containing <tabDurSym> + <rest> (rhythm-flag-looking)
+				#    b. <tabGrp> containing <tabDurSym> + <rest> (rest-looking)
+				# 3. a. <tabGrp> containing <rest> (rhythm-flag-looking)
+				#    b. <tabGrp> containing <rest> (rest-looking)
+				
+				if elem.find(f'.//{URI_MEI}note') is None:
+					# Remove @tab.line from <rest> (nh_staff_1, _2)
+					if rest is not None and 'tab.line' in rest.attrib:
+						xml_id_rest = rest.get(XML_ID_KEY)
+						rest_orig_1 = id_index_nh_staff_1[xml_id_rest]
+						rest_orig_1.attrib.pop('tab.line', None)
+						if args.score == DOUBLE:
+							rest_orig_2 = id_index_nh_staff_2[xml_id_rest]
+							rest_orig_2.attrib.pop('tab.line', None)
 
-				# Replace/remove in nh_staff_1 and _2
-				if rest_case_1:
-					# Remove from nh_staff_1 (<rest>)
-					rest_orig_1 = id_index_nh_staff_1[rest.get(XML_ID_KEY)]
-					rest_orig_1.getparent().remove(rest_orig_1)
-				if rest_case_2b:
-					# Replace in nh_staff_1 (<tabGrp> with <space>) 
-					tabGrp_orig_1 = id_index_nh_staff_1[xml_id]
-					tabGrp_orig_1.getparent().replace(tabGrp_orig_1, copy.deepcopy(space_new))
-				if args.score == DOUBLE:
-					# Replace in nh_staff_2 (<tabGrp> with <space>)
-					tabGrp_orig_2 = id_index_nh_staff_2[xml_id]
-					tabGrp_orig_2.getparent().replace(tabGrp_orig_2, space_new)
+#					# Remove all children but <rest> from <tabGrp> (nh_staff_2)
+#					# NB Generally, this will only be a <tabDurSym>
+#					# Take into account that the child can be wrapped in annot elems. So check for each direct child
+#					# of tabGrp whether it contains a rest -- if so: don't remove it 
+#					if args.score == DOUBLE:
+#						for child in list(elem):
+#							if child.tag != f'{URI_MEI}rest'
+#								child_orig_2 = id_index_nh_staff_2[child.get(XML_ID_KEY)]
+#								child_orig_2.getparent().remove(child_orig_2)
+
+#					# Add xml:id of <tabGrp> to list
+#					xml_id_tabGrp = xml_id
+#					if not xml_id_tabGrp in adapted_tabGrp_ids:
+#						adapted_tabGrp_ids.append(xml_id_tabGrp)
+					if rest is not None:
+						rhythm_flag_looking_rest = rest.get('glyph.name') in SMUFL_LUTE_DURS.values() # use @type
+					rest_case_1 = flag != None and rest == None
+					rest_case_2a = flag != None and rest != None and rhythm_flag_looking_rest
+					rest_case_2b = flag != None and rest != None and not rhythm_flag_looking_rest
+					rest_case_3a = flag == None and rest != None and rhythm_flag_looking_rest
+					rest_case_3b = flag == None and rest != None and not rhythm_flag_looking_rest
+
+#					# Make new <space> with old (= elem) xml:id
+#					if args.score == DOUBLE or rest_case_2b:
+#						space_new = make_element(f'{URI_MEI}space',
+#												 atts=[(XML_ID_KEY, xml_id), ('dur', dur)] +
+#													   ([('dots', dots)] if dots else [])
+#												)
+
+#					# Replace/remove in nh_staff_1 and _2
+#					if rest_case_1:
+#						# Remove from nh_staff_1 (<rest>)
+#						rest_orig_1 = id_index_nh_staff_1[rest.get(XML_ID_KEY)]
+#						rest_orig_1.getparent().remove(rest_orig_1)
+#					if rest_case_2b:
+#						# Replace in nh_staff_1 (<tabGrp> with <space>) 
+#						tabGrp_orig_1 = id_index_nh_staff_1[xml_id]
+#						tabGrp_orig_1.getparent().replace(tabGrp_orig_1, copy.deepcopy(space_new))
+#					if args.score == DOUBLE:
+#						# Replace in nh_staff_2 (<tabGrp> with <space>)
+#						tabGrp_orig_2 = id_index_nh_staff_2[xml_id]
+#						tabGrp_orig_2.getparent().replace(tabGrp_orig_2, space_new)
+
+#					if args.score == DOUBLE:
+#						# Empty <tabGrp> in nh_staff_2 (but keep its attributes)
+#						tabGrp_orig_2 = id_index_nh_staff_2[xml_id]
+#						for child in list(tabGrp_orig_2):
+#							elem.remove(child)
+
 
 #		print('STAFF 1')
 #		pretty_print(nh_staff_1)
@@ -829,34 +895,37 @@ def handle_section(section: etree._Element, ns: dict, args: argparse.Namespace):
 #			pretty_print(nh_staff_2)
 
 		# Clean up nh_staff_1 and _2
-		# a. Remove all <tabDurSym>s from nh_staff_2
+#		# a. Remove all <tabDurSym>s from nh_staff_2
+#		if args.score == DOUBLE:
+#			for elem in list(nh_staff_2.iter(f'{URI_MEI}tabDurSym')):
+#				elem.getparent().remove(elem)
+#		# b. Replace all <tabGrp>s now empty due to actions above with a <space>
+#		for staff in [nh_staff_1] if args.score == SINGLE else [nh_staff_1, nh_staff_2]:
+#			for elem in list(staff.iter()):
+#			# Skip comments
+#				if isinstance(elem, etree._Comment):
+#					continue
+#
+#				xml_id = elem.get(XML_ID_KEY) 
+#				if elem.tag == f'{URI_MEI}tabGrp' and xml_id in adapted_tabGrp_ids and is_empty(elem):
+#					dur = elem.get('dur')
+#					dots = elem.get('dots')
+#					space = make_element(f'{URI_MEI}space',
+#										 atts=[(XML_ID_KEY, xml_id), ('dur', dur)] +
+#											   ([('dots', dots)] if dots else [])
+#										)
+#					elem.getparent().replace(elem, space)
+		# c. Remove all editorial elements now empty due to removal of <note> or <tabDurSym>
+		remove_empty_markup(editorial, markup_elements, id_index_nh_staff_1)
 		if args.score == DOUBLE:
-			for elem in list(nh_staff_2.iter(f'{URI_MEI}tabDurSym')):
-				elem.getparent().remove(elem)
-		# b. Replace all <tabGrp>s now empty due to actions above with a <space>
-		for staff in [nh_staff_1] if args.score == SINGLE else [nh_staff_1, nh_staff_2]:
-			for elem in list(staff.iter()):
-			# Skip comments
-				if isinstance(elem, etree._Comment):
-					continue
+			remove_empty_markup(editorial, markup_elements, id_index_nh_staff_2)
 
-				xml_id = elem.get(XML_ID_KEY) 
-				if elem.tag == f'{URI_MEI}tabGrp' and xml_id in adapted_tabGrp_ids and is_empty(elem):
-					dur = elem.get('dur')
-					dots = elem.get('dots')
-					space = make_element(f'{URI_MEI}space',
-										 atts=[(XML_ID_KEY, xml_id), ('dur', dur)] +
-											   ([('dots', dots)] if dots else [])
-										)
-					elem.getparent().replace(elem, space)
-		# c. Remove all non-regular (e.g., annotation) elements now empty due to actions above
-		print(regular_elements)
-		print(nh_staff_1.tag)
-	
-		remove_all_empty(nh_staff_1, regular_elements)
-		if args.score == DOUBLE:
-			remove_all_empty(nh_staff_2, regular_elements)
-		
+#		print(regular_elements)
+#		print(nh_staff_1.tag)	
+#		remove_all_empty(nh_staff_1, regular_elements)
+#		if args.score == DOUBLE:
+#			remove_all_empty(nh_staff_2, regular_elements)
+#		
 #		for staff in [nh_staff_1] if args.score == SINGLE else [nh_staff_1, nh_staff_2]:
 #			for elem in list(staff.iter()):
 #				# Skip comments
@@ -880,14 +949,15 @@ def handle_section(section: etree._Element, ns: dict, args: argparse.Namespace):
 
 #		when done with original staff:
 #		adapt staff order to value of placement 
+		print(editorial)
 
-#		print('STAFF 1')
-#		pretty_print(nh_staff_1)
-#		if args.score == DOUBLE:
-#			print('STAFF 2')
-#			pretty_print(nh_staff_2)
-#		if measure.get('n') == '1':
-#			werwer
+		print('STAFF 1')
+		pretty_print(nh_staff_1)
+		if args.score == DOUBLE:
+			print('STAFF 2')
+			pretty_print(nh_staff_2)
+		if measure.get('n') == '1':
+			werwer
 
 #		### THIS WORKS:
 #
