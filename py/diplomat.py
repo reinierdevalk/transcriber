@@ -17,7 +17,7 @@ if lib_path not in sys.path:
 	sys.path.insert(0, lib_path)
 
 from py.constants import *
-from py.utils import (get_tuning, add_unique_id, remove_namespace_from_tag, handle_namespaces, 
+from py.utils_old import (get_tuning, add_unique_id, remove_namespace_from_tag, handle_namespaces, 
 					  parse_tree, get_main_MEI_elements, collect_xml_ids, unwrap_markup_elements,
 					  print_all_elements, pretty_print, get_isodate)
 
