@@ -22,7 +22,7 @@ lib_path = os.path.abspath(os.path.join(os.path.dirname(__file__), '../../utils'
 if lib_path not in sys.path:
 	sys.path.insert(0, lib_path)
 
-from diplomat import transcribe
+from diplomat_new import transcribe
 from py.constants import *
 
 
