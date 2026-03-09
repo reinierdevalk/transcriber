@@ -21,7 +21,7 @@ from py.utils import (get_tuning, add_unique_id, remove_namespace_from_tag, hand
 					  parse_tree, get_main_MEI_elements, collect_xml_ids, unwrap_markup_elements,
 					  print_all_elements, pretty_print, get_isodate)
 
-SHIFT_INTERVALS = {F: -2, F6Eb: -2, G: 0, G6F: 0, A: 2, A6G: 2}
+SHIFT_INTERVALS = {D: -5, E: -3, F: -2, F6Eb: -2, G: 0, G6F: 0, A: 2, A6G: 2}
 SMUFL_LUTE_DURS = {'f': 'fermataAbove',
 				   1: 'luteDurationDoubleWhole',
 				   2: 'luteDurationWhole',
@@ -107,7 +107,8 @@ def handle_encodingDesc(encodingDesc: ET.Element, ns: dict, args: argparse.Names
 	  <appInfo>
 	    <application>
 	      <name/>
-	      (<p/>)
+	      <p/>
+	      <p/>
 	    </application>  
 	  </appInfo>
 	  ...
@@ -128,6 +129,9 @@ def handle_encodingDesc(encodingDesc: ET.Element, ns: dict, args: argparse.Names
 	ET.SubElement(application, f'{URI_MEI}p', 
 				  **{f'{XML_ID_KEY}': add_unique_id('p', XML_IDS)[-1]}
 				 ).text = f'Input file: {args.file}'
+	ET.SubElement(application, f'{URI_MEI}p', 
+				  **{f'{XML_ID_KEY}': add_unique_id('p', XML_IDS)[-1]}
+				 ).text = f'Output file: {os.path.splitext(args.file)[0]}-dipl{MEI}'
 	# If there is no <appInfo>: create one
 	if appInfo is None:
 		appInfo = ET.SubElement(encodingDesc, f'{URI_MEI}appInfo',
@@ -791,7 +795,7 @@ def handle_section(section: ET.Element, ns: dict, args: argparse.Namespace): # -
 			# Annotation: needs <annot> (CMN) and <annot> (= c; tab) 
 			elif c.tag == f'{URI_MEI}annot':
 				xml_id_referred = c.get('plist').lstrip('#') # start after '#'
-				elem_referred = ORIG_XML_IDS.get(xml_id_referred)				
+				elem_referred = ORIG_XML_IDS.get(xml_id_referred)
 
 				# If <annot> refers to a tab element
 				# - add CMN <annot> to list
@@ -968,11 +972,11 @@ def spell_pitch(section: ET.Element, notes_unspelled_by_ID: list, args: argparse
 
 
 # Principal code -->
-def transcribe(in_file: str, in_path: str, out_path: str, args: argparse.Namespace): # -> None:
+def transcribe(in_path: str, out_path: str, args: argparse.Namespace): # -> None:
 	# 0. File processing
+	in_file = args.file
 	filename, ext = os.path.splitext(in_file) # in_file is already basename (see method call in transcriber.py)
 	out_file = filename + '-dipl' + MEI
-	args.file = in_file # NB already the case when using -f
 	# Get file contents as MEI string
 	if ext != MEI:
 		# As in abtab converter: provide three opts, always with their default vals, and no user opts
@@ -990,6 +994,9 @@ def transcribe(in_file: str, in_path: str, out_path: str, args: argparse.Namespa
 	with open(os.path.join(args.libpath, 'VERSION'), 'r', encoding='utf-8') as file:
 		version = file.read()
 	args.version = version
+
+	print(args.file)
+	dgdfg
 
 	# 0. Preliminaries 
 	# a. Handle namespaces
