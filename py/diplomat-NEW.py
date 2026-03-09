@@ -4,7 +4,7 @@ import json
 import os
 import re
 import sys
-import xml.etree.ElementTree as ET
+#import xml.etree.ElementTree as ET
 import lxml
 from lxml import etree
 from subprocess import Popen, PIPE, run
@@ -19,10 +19,9 @@ if lib_path not in sys.path:
 	sys.path.insert(0, lib_path)
 
 from py.constants import *
-from py.utils import (get_tuning, add_unique_id, remove_namespace_from_tag, get_namespaces,  
-					  get_main_MEI_elements, collect_xml_ids, unwrap_markup_elements,
-					  is_empty, remove_all_empty, remove_empty_markup, remove_empty_markup_ancestors,
-					  print_all_elements, pretty_print, get_isodate)
+from py.utils import (get_tuning_NEW, add_unique_id, remove_namespace_from_tag, get_namespaces_NEW,  
+					  get_main_MEI_elements_NEW, collect_xml_ids_NEW, is_empty, remove_all_empty, 
+					  remove_empty_markup, pretty_print_NEW, get_isodate) # TODO rename to same without _NEW
 
 SHIFT_INTERVALS = {D: -5, E: -3, F: -2, F6Eb: -2, G: 0, G6F: 0, A: 2, A6G: 2}
 SMUFL_LUTE_DURS = {'f': 'fermataAbove',
@@ -208,7 +207,7 @@ def handle_scoreDef(scoreDef: etree._Element, ns: dict, args: argparse.Namespace
 	global TUNING # dlaute customisation: args.tuning == A
 	if args.tuning == INPUT:
 		# If tab_tuning == None, no tuning is provided in the input file
-		TUNING = get_tuning(tab_tuning, ns) if tab_tuning != None else G
+		TUNING = get_tuning_NEW(tab_tuning, ns) if tab_tuning != None else G
 	else:
 		TUNING = args.tuning
 
@@ -471,7 +470,7 @@ def handle_section_NEW(section: ET.Element, ns: dict, args: argparse.Namespace):
 					new_staff.set('n', '1')
 #					print(pretty_print(elem))
 					print('measure', measure)
-					print(pretty_print(new_staff))
+					print(pretty_print_NEW(new_staff))
 
 					flag_dirs = []
 					# Make rhythm flag <dir>s for rests
@@ -952,10 +951,10 @@ def handle_section(section: etree._Element, ns: dict, args: argparse.Namespace):
 		print(editorial)
 
 		print('STAFF 1')
-		pretty_print(nh_staff_1)
+		pretty_print_NEW(nh_staff_1)
 		if args.score == DOUBLE:
 			print('STAFF 2')
-			pretty_print(nh_staff_2)
+			pretty_print_NEW(nh_staff_2)
 		if measure.get('n') == '1':
 			werwer
 
@@ -1404,7 +1403,7 @@ def transcribe(in_path: str, out_path: str, args: argparse.Namespace): # -> None
 	root = etree.fromstring(mei_str.encode('utf-8'))
 	tree = etree.ElementTree(root)	
 	# b. Get namespaces and URIs
-	ns = get_namespaces(root)
+	ns = get_namespaces_NEW(root)
 	global URI_MEI
 	URI_MEI = f'{{{ns['mei']}}}'
 	global URI_XML
@@ -1412,11 +1411,11 @@ def transcribe(in_path: str, out_path: str, args: argparse.Namespace): # -> None
 	global XML_ID_KEY
 	XML_ID_KEY = f'{URI_XML}id'
 	# c. Get main MEI elements (<meiHead>, <music>), and <score>
-	meiHead, music = get_main_MEI_elements(root, ns)
+	meiHead, music = get_main_MEI_elements_NEW(root, ns)
 	score = music.find('.//mei:score', ns)
 	# d. Collect all xml:ids; map the original xml:ids
 	global XML_IDS
-	XML_IDS = collect_xml_ids(root, ns)
+	XML_IDS = collect_xml_ids_NEW(root, ns)
 	global ORIG_XML_IDS
 	ORIG_XML_IDS = { # TODO keep?
 		elem.attrib[XML_ID_KEY]: elem for elem in root.iter() if XML_ID_KEY in elem.attrib

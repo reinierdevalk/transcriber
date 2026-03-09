@@ -17,9 +17,9 @@ if lib_path not in sys.path:
 	sys.path.insert(0, lib_path)
 
 from py.constants import *
-from py.utils import (get_tuning, add_unique_id, remove_namespace_from_tag, handle_namespaces, 
-					  parse_tree, get_main_MEI_elements, collect_xml_ids, unwrap_markup_elements,
-					  print_all_elements, pretty_print, get_isodate)
+from py.utils import (get_tuning_OLD, add_unique_id, remove_namespace_from_tag, handle_namespaces_OLD, 
+					  parse_tree_OLD, get_main_MEI_elements_OLD, collect_xml_ids_OLD, unwrap_markup_elements_OLD,
+					  print_all_elements_OLD, pretty_print_OLD, get_isodate)
 
 SHIFT_INTERVALS = {D: -5, E: -3, F: -2, F6Eb: -2, G: 0, G6F: 0, A: 2, A6G: 2}
 SMUFL_LUTE_DURS = {'f': 'fermataAbove',
@@ -179,7 +179,7 @@ def handle_scoreDef(scoreDef: ET.Element, ns: dict, args: argparse.Namespace): #
 	global TUNING # dlaute customisation: args.tuning == A
 	if args.tuning == INPUT:
 		# If tab_tuning == None, no tuning is provided in the input file
-		TUNING = get_tuning(tab_tuning, ns) if tab_tuning != None else G
+		TUNING = get_tuning_OLD(tab_tuning, ns) if tab_tuning != None else G
 	else:
 		TUNING = args.tuning
 
@@ -612,7 +612,7 @@ def handle_section(section: ET.Element, ns: dict, args: argparse.Namespace): # -
 	tab_elements = [f'{URI_MEI}{e}' for e in ['tabGrp', 'tabDurSym', 'note', 'rest']]
 
 	# Unwrap all markup elements
-	unwrap_markup_elements(section, markup_elements)
+	unwrap_markup_elements_OLD(section, markup_elements)
 
 	for measure in section.iter(f'{URI_MEI}measure'):
 		# 1. Collect any non-regular elements in <measure> and remove them from it
@@ -995,12 +995,9 @@ def transcribe(in_path: str, out_path: str, args: argparse.Namespace): # -> None
 		version = file.read()
 	args.version = version
 
-	print(args.file)
-	dgdfg
-
 	# 0. Preliminaries 
 	# a. Handle namespaces
-	ns = handle_namespaces(mei_str)
+	ns = handle_namespaces_OLD(mei_str)
 	global URI_MEI
 	URI_MEI = f'{{{ns['mei']}}}'
 	global URI_XML
@@ -1008,12 +1005,12 @@ def transcribe(in_path: str, out_path: str, args: argparse.Namespace): # -> None
 	global XML_ID_KEY
 	XML_ID_KEY = f'{URI_XML}id'
 	# b. Get the tree, root (<mei>), main MEI elements (<meiHead>, <music>), and <score>
-	tree, root = parse_tree(mei_str)
-	meiHead, music = get_main_MEI_elements(root, ns)
+	tree, root = parse_tree_OLD(mei_str)
+	meiHead, music = get_main_MEI_elements_OLD(root, ns)
 	score = music.find('.//mei:score', ns)
 	# c. Collect all xml:ids; map the original xml:ids
 	global XML_IDS
-	XML_IDS = collect_xml_ids(root, XML_ID_KEY)
+	XML_IDS = collect_xml_ids_OLD(root, XML_ID_KEY)
 	global ORIG_XML_IDS
 	ORIG_XML_IDS = { # TODO keep?
 		elem.attrib[XML_ID_KEY]: elem for elem in root.iter() if XML_ID_KEY in elem.attrib
