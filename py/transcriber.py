@@ -131,4 +131,5 @@ if __name__ == "__main__":
 		in_files = [os.path.basename(f) for f in in_files]
 
 	for in_file in in_files:
-		transcribe(in_file, in_path, out_path, args)
+		args.file = in_file
+		transcribe(in_path, out_path, args)
