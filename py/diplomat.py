@@ -349,14 +349,14 @@ def make_new_element(elem: ET.Element, parent_map: dict): # -> ET.Element:
 		if any(child.tag == f'{URI_MEI}note' for child in elem.iter()):
 			new_elem = make_element(f'{URI_MEI}chord', 
 									atts=[(XML_ID_KEY, add_unique_id('c', XML_IDS)[-1]),
-										  ('dur', elem.get('dur')),
-										  ('stem.visible', 'false')]
+										  ('stem.visible', 'false'),
+										  *([('dur', dur)] if (dur := elem.get('dur')) is not None else [])] #dur can be None
 								   )
 		# If elem contains no notes: new_elem is a <rest>
 		else:
 			new_elem = make_element(f'{URI_MEI}rest', 
 									atts=[(XML_ID_KEY, add_unique_id('r', XML_IDS)[-1]),
-										  ('dur', elem.get('dur'))]
+										  *([('dur', dur)] if (dur := elem.get('dur')) is not None else [])]
 								   )
 	elif elem.tag == f'{URI_MEI}note':
 		try:
@@ -376,7 +376,7 @@ def make_new_element(elem: ET.Element, parent_map: dict): # -> ET.Element:
 		tabGrp = find_ancestor_with_tag(elem, parent_map, f'{URI_MEI}tabGrp')
 		new_elem = make_element(f'{URI_MEI}rest',  
 								atts=[(XML_ID_KEY, add_unique_id('r', XML_IDS)[-1]),
-									  ('dur', tabGrp.get('dur'))]
+									  *([('dur', dur)] if (dur := elem.get('dur')) is not None else [])]
 							   )
 
 	return new_elem
@@ -446,8 +446,8 @@ def handle_section_NEW(section: ET.Element, ns: dict, args: argparse.Namespace):
 					flag_dirs = []
 					# Make rhythm flag <dir>s for rests
 					for r in new_staff.findall('.//mei:rest', ns):
-						flag_dir = _make_rhythm_symbol_dir(r.get(XML_ID_KEY), r.get('dur'), r.get('dots'), ns)
-						flag_dirs.append(flag_dir)
+						if flag_dir := _make_rhythm_symbol_dir(r.get(XML_ID_KEY), r.get('dur'), r.get('dots'), ns) is not None:
+							flag_dirs.append(flag_dir)
 						for child in list(r):
 							if child.tag == f'{URI_MEI}tabDurSym':
 								r.remove(child)
@@ -460,7 +460,8 @@ def handle_section_NEW(section: ET.Element, ns: dict, args: argparse.Namespace):
 						for el in list(c):
 							# tabDurSym is a direct child
 							if el.tag == f'{URI_MEI}tabDurSym':
-								flag_dirs.append(flag_dir)
+								if flag_dir is not None:
+									flag_dirs.append(flag_dir)
 								# Remove el from c
 								to_remove.append(el)
 							# tabDurSym is placed inside wrapper
@@ -476,7 +477,8 @@ def handle_section_NEW(section: ET.Element, ns: dict, args: argparse.Namespace):
 								el_for_flag_dirs.set(XML_ID_KEY, add_unique_id(get_element_name(el)[0], XML_IDS)[-1])
 								for child in list(el_for_flag_dirs):
 									el_for_flag_dirs.remove(child)
-								el_for_flag_dirs.append(flag_dir)
+								if flag_dir is not None:
+									el_for_flag_dirs.append(flag_dir)
 								flag_dirs.append(el_for_flag_dirs)
 								# Adapt original to keep any other elements (to remain in c if not empty)
 								for child in list(el):
@@ -694,17 +696,18 @@ def handle_section(section: ET.Element, ns: dict, args: argparse.Namespace): # -
 				space_1 = make_element(f'{URI_MEI}space', 
 									  parent=nh_layer_1, 
 									  atts=[(XML_ID_KEY, xml_id_space_1),
-										 	('dur', dur)]
+										 	*([('dur', dur)] if dur is not None else [])]
 									 )
 				space_2 = make_element(f'{URI_MEI}space', 
 									  parent=nh_layer_2, 
 									  atts=[(XML_ID_KEY, xml_id_space_2),
-										 	('dur', dur)]
+										 	*([('dur', dur)] if dur is not None else [])]
 									 )
 
 				# 2. Add <dir>
 				if not rest_case_2b:
-					rhythm_symbol_dirs.append(_make_rhythm_symbol_dir(xml_id_space_1, dur, dots, ns))
+					if el := _make_rhythm_symbol_dir(xml_id_space_1, dur, dots, ns):
+						rhythm_symbol_dirs.append(el)
 
 				# 3. Map tabGrp
 				spaces = (space_1, None) if args.score == SINGLE else (space_1, space_2)
@@ -722,13 +725,13 @@ def handle_section(section: ET.Element, ns: dict, args: argparse.Namespace): # -
 				xml_id_chord_2 = add_unique_id('c', XML_IDS)[-1]
 				chord_1 = make_element(f'{URI_MEI}chord', 
 									   atts=[(XML_ID_KEY, xml_id_chord_1),
-										     ('dur', dur), 
-										   	 ('stem.visible', 'false')]
+										   	 ('stem.visible', 'false'),
+											 *([('dur', dur)] if dur is not None else [])]
 									  )
 				chord_2 = make_element(f'{URI_MEI}chord', 
 									   atts=[(XML_ID_KEY, xml_id_chord_2),
-										   	 ('dur', dur), 
-										   	 ('stem.visible', 'false')]
+										   	 ('stem.visible', 'false'),
+											 *([('dur', dur)] if dur is not None else [])]
 									  )
 				for element in tabGrp:
 					if element != flag and element != rest and element != space:
@@ -760,7 +763,7 @@ def handle_section(section: ET.Element, ns: dict, args: argparse.Namespace): # -
 				xml_id_space = add_unique_id('s', XML_IDS)[-1]
 				nh_space = make_element(f'{URI_MEI}space', 
 										atts=[(XML_ID_KEY, xml_id_space),
-											  ('dur', dur)]
+											  *([('dur', dur)] if dur is not None else [])]
 									   )
 				nh_layer_1.append(chord_1 if len(chord_1) > 0 else nh_space)
 				if args.score == DOUBLE:
@@ -768,8 +771,9 @@ def handle_section(section: ET.Element, ns: dict, args: argparse.Namespace): # -
 				xml_id_reference = xml_id_chord_1 if len(chord_1) > 0 else xml_id_space
 
 				# 2. Add <dir>
-				if flag != None:
-					rhythm_symbol_dirs.append(_make_rhythm_symbol_dir(xml_id_reference, dur, dots, ns))
+				if flag is not None:
+					if el := _make_rhythm_symbol_dir(xml_id_reference, dur, dots, ns):
+						rhythm_symbol_dirs.append(el)
 
 				# 3. Map tabGrp
 				chords = (chord_1, None) if args.score == SINGLE\
@@ -868,7 +872,9 @@ def handle_section(section: ET.Element, ns: dict, args: argparse.Namespace): # -
 	return (section, notes_unspelled_by_ID)
 
 
-def _make_rhythm_symbol_dir(xml_id: str, dur: int, dots: int, ns: dict): # -> ET.Element:
+def _make_rhythm_symbol_dir(xml_id: str, dur: int, dots: int, ns: dict): # -> ET.Element:	
+	if dur is None: #<tabDurSym> can have no dur
+		return None
 	d = ET.Element(f'{URI_MEI}dir', 
 				   **{f'{XML_ID_KEY}': add_unique_id('d', XML_IDS)[-1]},
 				   place='above', 
