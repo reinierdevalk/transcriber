@@ -26,8 +26,8 @@ from diplomat import transcribe
 from py.constants import *
 
 
-# Main functions -->
-def parse_args(): # -> None:
+# Main functions (called once by principal code) -->
+def parse_args() -> None:
 	"""
 	See https://docs.python.org/3/library/argparse.html
 	"""
