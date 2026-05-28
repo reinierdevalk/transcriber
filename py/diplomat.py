@@ -18,7 +18,7 @@ if lib_path not in sys.path:
 from py.constants import *
 from py.lxml_tools import (get_namespaces, collect_xml_ids, get_wrapper_elem, unwrap,
 						   make_element)
-from py.mei_tools import (get_main_MEI_elements, get_tuning, remove_empty_markup,  
+from py.mei_tools import (get_main_mei_elements, get_tuning, remove_empty_markup,  
 					  	  get_MEI_keysig, get_octave, get_midi_pitch, TUNINGS)
 from py.tools import add_unique_id, get_isodate
 
