@@ -406,7 +406,7 @@ def handle_section(section: etree._Element, ns: dict, args: argparse.Namespace) 
 					n_1.getparent().replace(n_1, nh_note)
 				else:
 					n_2 = id_index_nh_staff_2[xml_id]
-					if midi_pitch >= 60:
+					if midi_pitch is None or midi_pitch >= 60:
 						n_1.getparent().replace(n_1, nh_note) 
 						n_2.getparent().remove(n_2)
 					else:
@@ -414,7 +414,8 @@ def handle_section(section: etree._Element, ns: dict, args: argparse.Namespace) 
 						n_1.getparent().remove(n_1)
 
 				xml_id_mapping[nh_xml_id] = xml_id 
-				notes_unspelled_by_ID[nh_xml_id] = (measure.get('n'), midi_pitch)
+				if midi_pitch is not None: #to avoid spell_pitch java pitch getting null
+					notes_unspelled_by_ID[nh_xml_id] = (measure.get('n'), midi_pitch)
 
 			# e. Handle <rest>: remove @tab.line
 			elif elem.tag == f'{URI_MEI}rest':
