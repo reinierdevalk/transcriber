@@ -299,170 +299,247 @@ def handle_section(section: etree._Element, ns: dict, args: argparse.Namespace) 
 		xml_id_mapping = {}
 
 		# 1. Handle tablature <staff>
-		tab_staff = measure.find('mei:staff', ns)
+		reg_tab_staff = measure.find('mei:staff', ns)
+
+		
+		# Handle <ossia>, can currently only handle one <oStaff/>
+		ossia = reg_tab_staff is None
+		if ossia:
+			ossia_elem = measure.find('.//mei:ossia', ns)
+			reg_tab_staff = ossia_elem.find('mei:staff', ns)
+			o_tab_staff = ossia_elem.find('mei:oStaff', ns)
+			o_staff_on_top = ossia_elem.index(o_tab_staff) == 0
+		
 		# Adapt
-		tab_staff_num = 1 if args.placement == TOP else (2 if args.score == SINGLE else 3)
-		tab_staff.set('n', str(tab_staff_num))
+		reg_tab_staff_num = 1 if args.placement == TOP else (2 if args.score == SINGLE else 3)
+		reg_tab_staff.set('n', str(reg_tab_staff_num))
+		if ossia:
+			o_tab_staff.set('n', str(reg_tab_staff_num))
+		
 		# Remove
 		if args.tablature == NO:
-			measure.remove(tab_staff)
+			if ossia:
+				measure.remove(ossia_elem)
+			else:
+				measure.remove(reg_tab_staff)
 
 		# 2. Handle notehead <staff>(s)
 		# Make copies of tab_staff; keep xml:ids so they can be used for reference  
-		nh_staff_1 = copy.deepcopy(tab_staff)
-		nh_staff_1_num = 1 if args.placement == BOTTOM else 2
-		nh_staff_1.set('n', str(nh_staff_1_num))
+		reg_nh_staff_1 = copy.deepcopy(reg_tab_staff)
+		reg_nh_staff_1_num = 1 if args.placement == BOTTOM else 2
+		reg_nh_staff_1.set('n', str(reg_nh_staff_1_num))
 		# Build index of elements by xml:id
-		id_index_nh_staff_1 = {elem.get(XML_ID_KEY): elem for elem in nh_staff_1.iter() if elem.get(XML_ID_KEY)}
+		id_index_reg_nh_staff_1 = {elem.get(XML_ID_KEY): elem for elem in reg_nh_staff_1.iter() if elem.get(XML_ID_KEY)}
+		if ossia:
+			o_nh_staff_1 = copy.deepcopy(o_tab_staff)
+			o_nh_staff_1.set('n', str(reg_nh_staff_1_num))
+			id_index_o_nh_staff_1 = {elem.get(XML_ID_KEY): elem for elem in o_nh_staff_1.iter() if elem.get(XML_ID_KEY)}
 		if args.score == DOUBLE:
-			nh_staff_2 = copy.deepcopy(tab_staff)
-			nh_staff_2_num = nh_staff_1_num + 1
-			nh_staff_2.set('n', str(nh_staff_2_num))
+			reg_nh_staff_2 = copy.deepcopy(reg_tab_staff)
+			reg_nh_staff_2_num = reg_nh_staff_1_num + 1
+			reg_nh_staff_2.set('n', str(reg_nh_staff_2_num))
 			# Build index of elements by xml:id
-			id_index_nh_staff_2 = {elem.get(XML_ID_KEY): elem for elem in nh_staff_2.iter() if elem.get(XML_ID_KEY)}
+			id_index_reg_nh_staff_2 = {elem.get(XML_ID_KEY): elem for elem in reg_nh_staff_2.iter() if elem.get(XML_ID_KEY)}
+			if ossia:
+				o_nh_staff_2 = copy.deepcopy(o_tab_staff)
+				o_nh_staff_2.set('n', str(reg_nh_staff_2_num))
+				id_index_o_nh_staff_2 = {elem.get(XML_ID_KEY): elem for elem in o_nh_staff_2.iter() if elem.get(XML_ID_KEY)}
 
-		# First pass: iterate over tab_staff; modify elements in nh_staff_1 and _2. 
-		# Handled elements are <beam>, <tabGrp>, <tabDurSym>, <note>, <rest>. 
-		# xml:ids for <tabGrp> and <note> must be made already in the first pass
-		#
-		# editorial contains all of <tab_staff>'s' markup elements with a direct
-		# child that may be removed when args.score == DOUBLE (i.e., a <note> or
-		# <tabDurSym>), possibly leaving the editorial element empty
-		editorial = []
-		for elem in list(tab_staff.iter()): # list() makes it safe to modify (replace/remove) during iteration
-			# Skip comments
-			if isinstance(elem, etree._Comment):
-				continue
-
-			name = etree.QName(elem).localname
-			xml_id = elem.get(XML_ID_KEY)
-
-			# Check if elem is a markup element with a <note> or <tabDurSym> as direct child 
-			if elem.tag in markup_elements:
-				for child in elem:
-					if child.tag == f'{URI_MEI}note' or child.tag == f'{URI_MEI}tabDurSym':
-						editorial.append(xml_id)
-
-			# a. Handle <beam>: remove (if args.score == DOUBLE)
-			if elem.tag == f'{URI_MEI}beam':
-				if args.score == DOUBLE:
-					unwrap(id_index_nh_staff_2[xml_id])
-
-			# b. Handle <tabGrp>: set new xml:id(s) (needed for cross-linking)
-			# and add to mapping; cross-link (if args.score == DOUBLE)  
-			elif elem.tag == f'{URI_MEI}tabGrp':
-				nh_tg_1 = id_index_nh_staff_1[xml_id]
-				nh_xml_id_1 = add_unique_id(name[0], XML_IDS)[-1]
-				nh_tg_1.set(XML_ID_KEY, nh_xml_id_1)
-				xml_id_mapping[nh_xml_id_1] = xml_id
-				if args.score == DOUBLE:
-					nh_tg_2 = id_index_nh_staff_2[xml_id]
-					nh_xml_id_2 = add_unique_id(name[0], XML_IDS)[-1]
-					nh_tg_2.set(XML_ID_KEY, nh_xml_id_2)
-					xml_id_mapping[nh_xml_id_2] = xml_id
-					nh_tg_1.set('corresp', '#' + nh_xml_id_2)
-					nh_tg_2.set('corresp', '#' + nh_xml_id_1)
-
-				# NB Types of rest are
-				# 1.    <tabGrp> containing <tabDurSym> (above or inside the tablature staff)
-				# 2. a. <tabGrp> containing <tabDurSym> + <rest> (rhythm-flag-looking)
-				#    b. <tabGrp> containing <tabDurSym> + <rest> (rest-looking)
-				# 3. a. <tabGrp> containing <rest> (rhythm-flag-looking)
-				#    b. <tabGrp> containing <rest> (rest-looking)
-				if elem.find(f'.//{URI_MEI}note') is None:
-					tds = elem.find(f'.//{URI_MEI}tabDurSym')
-					rest = elem.find(f'.//{URI_MEI}rest')
-					rest_case_1 = tds is not None and rest is None
-					rest_case_2a = tds is not None and rest is not None and rest.get('glyph.name') in SMUFL_LUTE_DURS.values() # use @type
-					rest_case_2b = tds is not None and rest is not None and rest.get('glyph.name') not in SMUFL_LUTE_DURS.values() # use @type
-					rest_case_3a = tds is None and rest is not None and rest.get('glyph.name') in SMUFL_LUTE_DURS.values() # use @type
-					rest_case_3b = tds is None and rest is not None and rest.get('glyph.name') not in SMUFL_LUTE_DURS.values() # use @type
-
-			# c. Handle <tabDurSym>: remove @tab.line; remove (if args.score == DOUBLE) 
-			elif elem.tag == f'{URI_MEI}tabDurSym':
-				nh_tds_1 = id_index_nh_staff_1[xml_id]
-				if 'tab.line' in elem.attrib:		
-					nh_tds_1.attrib.pop('tab.line', None)
-				if args.score == DOUBLE:
-					nh_tds_2 = id_index_nh_staff_2[xml_id]
-					nh_tds_2.getparent().remove(nh_tds_2)
-
-			# d. Handle <note>: make notehead <note>; set new xml:id (needed for notes_unspelled_by_ID)
-			# and add to mapping; replace with notehead <note>/remove tab <note>
-			elif elem.tag == f'{URI_MEI}note':
-				nh_xml_id = add_unique_id(name[0], XML_IDS)[-1]
-				course = elem.get('tab.course')
-				fret = elem.get('tab.fret')
-				midi_pitch = (None if (course is None or fret is None) else	
-							  get_midi_pitch(int(course), int(fret), TUNING))
-				nh_note = make_element(f'{URI_MEI}note', 
-									   atts=[(XML_ID_KEY, nh_xml_id)] +
-									   ([('pname', ''), ('oct', str(get_octave(midi_pitch)))] if midi_pitch 
-									   else [('visible', 'false')])
-									  )
-
-				n_1 = id_index_nh_staff_1[xml_id]
-				if args.score == SINGLE:
-					n_1.getparent().replace(n_1, nh_note)
-				else:
-					n_2 = id_index_nh_staff_2[xml_id]
-					if midi_pitch >= 60:
-						n_1.getparent().replace(n_1, nh_note) 
-						n_2.getparent().remove(n_2)
-					else:
-						n_2.getparent().replace(n_2, nh_note)
-						n_1.getparent().remove(n_1)
-
-				xml_id_mapping[nh_xml_id] = xml_id 
-				notes_unspelled_by_ID[nh_xml_id] = (measure.get('n'), midi_pitch)
-
-			# e. Handle <rest>: remove @tab.line
-			elif elem.tag == f'{URI_MEI}rest':
-				nh_r_1 = id_index_nh_staff_1[xml_id]
-				if 'tab.line' in elem.attrib:		
-					nh_r_1.attrib.pop('tab.line', None)
-				if args.score == DOUBLE:
-					nh_r_2 = id_index_nh_staff_2[xml_id]
-					if 'tab.line' in elem.attrib:
-						nh_r_2.attrib.pop('tab.line', None)
-
-		# Second pass: remove all editorial elements now empty due to removal 
-		# of <note> or <tabDurSym>
-		remove_empty_markup(editorial, markup_elements, id_index_nh_staff_1)
-		if args.score == DOUBLE:
-			remove_empty_markup(editorial, markup_elements, id_index_nh_staff_2)
-
-		# Third pass: iterate over nh_staff_1 and _2; update remaining xml:ids and add to mapping
-		for i, staff in enumerate([nh_staff_1] if args.score == SINGLE else [nh_staff_1, nh_staff_2]):
-			for elem in list(staff.iter()):
+		# does three passes over the tab_staff given
+		def handle_staff(tab_staff:etree.Element,nh_staff_1:etree.Element,id_index_nh_staff_1:dict,nh_staff_2:etree.Element=None,id_index_nh_staff_2:dict=None, is_ossia:bool=False):
+			
+			# First pass: iterate over tab_staff; modify elements in nh_staff_1 and _2. 
+			# Handled elements are <beam>, <tabGrp>, <tabDurSym>, <note>, <rest>. 
+			# xml:ids for <tabGrp> and <note> must be made already in the first pass
+			#
+			# editorial contains all of <tab_staff>'s' markup elements with a direct
+			# child that may be removed when args.score == DOUBLE (i.e., a <note> or
+			# <tabDurSym>), possibly leaving the editorial element empty
+			editorial = []
+			for elem in list(tab_staff.iter()): # list() makes it safe to modify (replace/remove) during iteration
 				# Skip comments
 				if isinstance(elem, etree._Comment):
 					continue
 
+				name = etree.QName(elem).localname
 				xml_id = elem.get(XML_ID_KEY)
-				# If xml_id is in xml_id_mapping, elem's xml:id has been created and added  
-				# to xml_id_mapping in the first pass. If not, thus must still be done
-				if xml_id not in xml_id_mapping:	
-					name = etree.QName(elem).localname
+
+				# Check if elem is a markup element with a <note> or <tabDurSym> as direct child 
+				if elem.tag in markup_elements:
+					for child in elem:
+						if child.tag == f'{URI_MEI}note' or child.tag == f'{URI_MEI}tabDurSym':
+							editorial.append(xml_id)
+
+				# a. Handle <beam>: remove (if args.score == DOUBLE)
+				if elem.tag == f'{URI_MEI}beam':
+					if args.score == DOUBLE:
+						unwrap(id_index_nh_staff_2[xml_id])
+
+				# b. Handle <tabGrp>: set new xml:id(s) (needed for cross-linking)
+				# and add to mapping; cross-link (if args.score == DOUBLE)  
+				elif elem.tag == f'{URI_MEI}tabGrp':
+					nh_tg_1 = id_index_nh_staff_1[xml_id]
+					nh_xml_id_1 = add_unique_id(name[0], XML_IDS)[-1]
+					nh_tg_1.set(XML_ID_KEY, nh_xml_id_1)
+					xml_id_mapping[nh_xml_id_1] = xml_id
+					if args.score == DOUBLE:
+						nh_tg_2 = id_index_nh_staff_2[xml_id]
+						nh_xml_id_2 = add_unique_id(name[0], XML_IDS)[-1]
+						nh_tg_2.set(XML_ID_KEY, nh_xml_id_2)
+						xml_id_mapping[nh_xml_id_2] = xml_id
+						nh_tg_1.set('corresp', '#' + nh_xml_id_2)
+						nh_tg_2.set('corresp', '#' + nh_xml_id_1)
+
+					# NB Types of rest are
+					# 1.    <tabGrp> containing <tabDurSym> (above or inside the tablature staff)
+					# 2. a. <tabGrp> containing <tabDurSym> + <rest> (rhythm-flag-looking)
+					#    b. <tabGrp> containing <tabDurSym> + <rest> (rest-looking)
+					# 3. a. <tabGrp> containing <rest> (rhythm-flag-looking)
+					#    b. <tabGrp> containing <rest> (rest-looking)
+					if elem.find(f'.//{URI_MEI}note') is None:
+						tds = elem.find(f'.//{URI_MEI}tabDurSym')
+						rest = elem.find(f'.//{URI_MEI}rest')
+						rest_case_1 = tds is not None and rest is None
+						rest_case_2a = tds is not None and rest is not None and rest.get('glyph.name') in SMUFL_LUTE_DURS.values() # use @type
+						rest_case_2b = tds is not None and rest is not None and rest.get('glyph.name') not in SMUFL_LUTE_DURS.values() # use @type
+						rest_case_3a = tds is None and rest is not None and rest.get('glyph.name') in SMUFL_LUTE_DURS.values() # use @type
+						rest_case_3b = tds is None and rest is not None and rest.get('glyph.name') not in SMUFL_LUTE_DURS.values() # use @type
+
+				# c. Handle <tabDurSym>: remove @tab.line; remove (if args.score == DOUBLE) 
+				elif elem.tag == f'{URI_MEI}tabDurSym':
+					nh_tds_1 = id_index_nh_staff_1[xml_id]
+					if 'tab.line' in elem.attrib:		
+						nh_tds_1.attrib.pop('tab.line', None)
+					if args.score == DOUBLE:
+						nh_tds_2 = id_index_nh_staff_2[xml_id]
+						nh_tds_2.getparent().remove(nh_tds_2)
+
+				# d. Handle <note>: make notehead <note>; set new xml:id (needed for notes_unspelled_by_ID)
+				# and add to mapping; replace with notehead <note>/remove tab <note>
+				elif elem.tag == f'{URI_MEI}note':
 					nh_xml_id = add_unique_id(name[0], XML_IDS)[-1]
-					elem.set(XML_ID_KEY, nh_xml_id)
-					xml_id_mapping[nh_xml_id] = xml_id
+					course = elem.get('tab.course')
+					fret = elem.get('tab.fret')
+					midi_pitch = (None if (course is None or fret is None) else	
+								get_midi_pitch(int(course), int(fret), TUNING))
+					nh_note = make_element(f'{URI_MEI}note', 
+										atts=[(XML_ID_KEY, nh_xml_id)] +
+										([('pname', ''), ('oct', str(get_octave(midi_pitch)))] if midi_pitch 
+										else [('visible', 'false')])
+										)
+
+					n_1 = id_index_nh_staff_1[xml_id]
+					if args.score == SINGLE:
+						n_1.getparent().replace(n_1, nh_note)
+					else:
+						n_2 = id_index_nh_staff_2[xml_id]
+						if midi_pitch >= 60:
+							n_1.getparent().replace(n_1, nh_note) 
+							n_2.getparent().remove(n_2)
+						else:
+							n_2.getparent().replace(n_2, nh_note)
+							n_1.getparent().remove(n_1)
+
+					xml_id_mapping[nh_xml_id] = xml_id 
+					# to make sure that oStaff gets its own spell pitch treatment
+					notes_unspelled_by_ID[nh_xml_id] = (measure.get('n') + 'o' if is_ossia else '', midi_pitch) 
+
+				# e. Handle <rest>: remove @tab.line
+				elif elem.tag == f'{URI_MEI}rest':
+					nh_r_1 = id_index_nh_staff_1[xml_id]
+					if 'tab.line' in elem.attrib:		
+						nh_r_1.attrib.pop('tab.line', None)
+					if args.score == DOUBLE:
+						nh_r_2 = id_index_nh_staff_2[xml_id]
+						if 'tab.line' in elem.attrib:
+							nh_r_2.attrib.pop('tab.line', None)
+
+			# Second pass: remove all editorial elements now empty due to removal 
+			# of <note> or <tabDurSym>
+			remove_empty_markup(editorial, markup_elements, id_index_nh_staff_1)
+			if args.score == DOUBLE:
+				remove_empty_markup(editorial, markup_elements, id_index_nh_staff_2)
+
+			# Third pass: iterate over nh_staff_1 and _2; update remaining xml:ids and add to mapping
+			for i, staff in enumerate([nh_staff_1] if args.score == SINGLE else [nh_staff_1, nh_staff_2]):
+				for elem in list(staff.iter()):
+					# Skip comments
+					if isinstance(elem, etree._Comment):
+						continue
+
+					xml_id = elem.get(XML_ID_KEY)
+					# If xml_id is in xml_id_mapping, elem's xml:id has been created and added  
+					# to xml_id_mapping in the first pass. If not, thus must still be done
+					if xml_id not in xml_id_mapping:	
+						name = etree.QName(elem).localname
+						nh_xml_id = add_unique_id(name[0], XML_IDS)[-1]
+						elem.set(XML_ID_KEY, nh_xml_id)
+						xml_id_mapping[nh_xml_id] = xml_id
+
+		# Apply handle_staff on reg_staff and o_staff if ossia
+		if args.score == DOUBLE:
+			handle_staff(reg_tab_staff, reg_nh_staff_1, id_index_reg_nh_staff_1, reg_nh_staff_2, id_index_reg_nh_staff_2)
+		else:
+			handle_staff(reg_tab_staff, reg_nh_staff_1, id_index_reg_nh_staff_1)
+		if ossia:
+			if args.score == DOUBLE:
+				handle_staff(o_tab_staff, o_nh_staff_1, id_index_o_nh_staff_1, o_nh_staff_2, id_index_o_nh_staff_2, True)
+			else:
+				handle_staff(o_tab_staff, o_nh_staff_1, id_index_o_nh_staff_1, is_ossia=True)
+
 
 		# Insert staves in <measure>
-		measure.insert(nh_staff_1_num - 1, nh_staff_1)
-		if args.score == DOUBLE:
-			measure.insert(nh_staff_2_num - 1, nh_staff_2)			
+		if ossia:
+			# ossia for nh staff wirh @type="show.scoredef.false" to avoid
+			nh_ossia_elem = etree.Element("ossia", {"type":"show.scoredef.false"})
+			measure.insert(reg_nh_staff_1_num - 1,nh_ossia_elem)
+			# reg_nh_staff next to each other
+			nh_ossia_elem.append(reg_nh_staff_1)
+			if args.score == DOUBLE:
+				nh_ossia_elem.append(reg_nh_staff_2)
+			if o_staff_on_top:
+				"""
+				order:
+				<ossia>
+					<oStaff n="2"/>
+					<oStaff n="1"/>
+					<staff n="1"/>
+					<staff n="2"/>
+				</ossia>
+				"""
+				nh_ossia_elem.insert(0,o_nh_staff_1)
+				if args.score == DOUBLE:
+					nh_ossia_elem.insert(0,o_nh_staff_2)
+			else:
+				"""
+				order:
+				<ossia>
+					<staff n="1"/>
+					<staff n="2"/>
+					<oStaff n="1"/>
+					<oStaff n="2"/>
+				</ossia>
+				"""
+				nh_ossia_elem.append(o_nh_staff_1)
+				if args.score == DOUBLE:
+					nh_ossia_elem.append(o_nh_staff_2)
+
+
+		else:
+			measure.insert(reg_nh_staff_1_num - 1, reg_nh_staff_1)
+			if args.score == DOUBLE:
+				measure.insert(reg_nh_staff_2_num - 1, reg_nh_staff_2)			
 
 		# 3. Handle optional sibling elements of <staff> 
 		# a. <dir>: performance-related <dir>s are only shown in the tab staff; 
 		# non-performance-related <dir>s are shown in both staffs 
 		for elem in measure.findall('.//mei:dir', ns):
 			# Adapt
-			elem.set('staff', str(tab_staff_num))
+			elem.set('staff', str(reg_tab_staff_num))
 			elem_wrapped = get_wrapper_elem(elem, measure)
 			# Duplicate and insert in <measure> (if not performance_related_att_types)
 			if elem.get('type') not in performance_related_att_types:
-				att_list = [('staff', str(nh_staff_1_num))]
+				att_list = [('staff', str(reg_nh_staff_1_num))]
 				if elem.get('type') == 'finis' and args.score == DOUBLE:
 					att_list.append(('vo', '-10vu'))
 				nh_d_wrapped = _duplicate_for_nh_staff(elem_wrapped, 'dir', att_list, ns)
